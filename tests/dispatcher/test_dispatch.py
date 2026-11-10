@@ -656,6 +656,38 @@ class RoundThree(unittest.TestCase):
         self.assertEqual(w.cursor_server.cancels, [(agent, "run-late")], "an unreserved run is cancelled at once")
 
 
+class Discovery(unittest.TestCase):
+    def test_an_incomplete_list_of_running_agents_blocks_new_runs(self):
+        w = World()
+        w.tick()
+        w.gh.issues_[1].update(state="closed", closed_at=w.clock.iso())
+        w.clock.advance(8 * 24 * 60)
+        w.cursor_server.idle_padding = 100 * tick_module.CURSOR_PAGES  # the running agent is past the last page read
+        w.rows = lambda repo, s: sources.sentry("acme", "shop", "t", send=sentry_row("2"))
+        w.tick()
+        self.assertEqual(w.cursor_server.creates, 1)
+        self.assertTrue(any("incomplete" in line for line in w.log))
+
+    def test_a_failed_cancel_keeps_the_old_agent_counted(self):
+        w = World()
+        w.tick()
+        old = next(iter(w.cursor_server.agents))
+        w.cursor_server.run_status = "FINISHED"
+        w.tick()  # claim one ends with a pull request
+        w.gh.comment(CTL, 1, m.json_marker("reopen", {"last_seen": "x"}), login=DISPATCHER_LOGIN)  # a new generation
+        w.cursor_server.status_of = {old: "IDLE"}
+        w.cursor_server.run_status = "RUNNING"
+        w.tick()  # claim two starts
+        new = [a for a in w.cursor_server.agents if a != old][0]
+        self.assertEqual(w.cursor_server.creates, 2)
+        w.cursor_server.status_of = {old: "ACTIVE", new: "IDLE"}  # a late follow-up wakes the old agent
+        w.cursor_server.fail_cancel = True
+        w.cursor_server.run_status = "FINISHED"  # and claim two finishes in the same tick
+        w.rows = lambda repo, s: sources.sentry("acme", "shop", "t", send=sentry_row("2"))
+        w.tick()
+        self.assertEqual(w.cursor_server.creates, 2, "the old agent that could not be cancelled still holds the repo")
+
+
 class SteerDelivery(unittest.TestCase):
     def setUp(self):
         self.w = World()

@@ -115,6 +115,7 @@ class FakeCursor:
         self.clock, self.agents, self.creates = clock, {}, 0
         self.run_status, self.lose_create, self.fail_create = "RUNNING", False, False
         self.steers, self.steer_delivery, self.cancels, self.frozen_end = [], "steered", [], None
+        self.idle_padding, self.fail_cancel, self.status_of = 0, False, {}
 
     def __call__(self, method, url, headers=None, body=None):
         path = url.split("api.cursor.com", 1)[1].split("?")[0]
@@ -132,14 +133,21 @@ class FakeCursor:
                 raise http.Unreachable("read timed out")
             return 201, {}, {"agent": agent, "run": created["run"]}
         if method == "GET" and path == "/v1/agents":
-            items = sorted(self.agents.values(), key=lambda a: a["createdAt"], reverse=True)
-            return 200, {}, {"items": [{**a, "status": self.status(a)} for a in items]}
+            items = [{**a, "status": self.status(a)} for a in sorted(self.agents.values(), key=lambda a: a["createdAt"], reverse=True)]
+            items = [{"id": "bc-idle-%d" % n, "name": "someone else's agent", "status": "IDLE"} for n in range(self.idle_padding)] + items
+            start = int(url.split("cursor=")[1].split("&")[0]) if "cursor=" in url else 0
+            page = {"items": items[start:start + 100]}
+            if start + 100 < len(items):
+                page["nextCursor"] = str(start + 100)
+            return 200, {}, page
         parts = path.strip("/").split("/")
         if method == "GET" and len(parts) == 3:
             if parts[2] not in self.agents:
                 return 404, {}, {"code": "not_found"}
             return 200, {}, {**self.agents[parts[2]], "status": self.status(self.agents[parts[2]])}
         if method == "POST" and len(parts) == 6 and parts[5] == "cancel":
+            if self.fail_cancel:
+                return 503, {}, {"code": "unavailable"}
             self.cancels.append((parts[2], parts[4]))
             self.run_status = "CANCELLED"
             return 200, {}, {"id": parts[4]}
@@ -159,4 +167,6 @@ class FakeCursor:
         self.agents[agent_id]["latestRunId"] = run_id
 
     def status(self, agent):
+        if agent["id"] in self.status_of:
+            return self.status_of[agent["id"]]
         return "ACTIVE" if self.run_status in ("CREATING", "RUNNING", "WAITING_FOR_BACKGROUND_WORK") else "IDLE"

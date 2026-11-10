@@ -77,16 +77,16 @@ class Client:
         agent = self.get(cursor_id)
         return self._call("GET", "/v1/agents/%s/runs/%s" % (cursor_id, agent["latestRunId"]))
 
-    def active(self, max_pages=5):
-        """Agents with a turn running, newest first, from at most `max_pages` pages of the list."""
+    def active(self, max_pages):
+        """(agents with a turn running, whether the whole list was read) from at most `max_pages` pages."""
         found, cursor = [], None
         for _ in range(max_pages):
             page = self._call("GET", "/v1/agents", query={"limit": 100, "includeArchived": "false", **({"cursor": cursor} if cursor else {})})
             found += [a for a in page.get("items", []) if a.get("status") == "ACTIVE"]
             cursor = page.get("nextCursor")
             if not cursor:
-                break
-        return found
+                return found, True
+        return found, False
 
     def cancel(self, cursor_id, run_id):
         return self._call("POST", "/v1/agents/%s/runs/%s/cancel" % (cursor_id, run_id))

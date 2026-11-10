@@ -25,6 +25,7 @@ DEFAULT_PROMPT = (
 CLAIM_TIMEOUT = timedelta(minutes=10)
 HEARTBEAT_STALE = timedelta(minutes=30)
 IDLE_CLOSE = timedelta(days=30)
+CURSOR_PAGES = 20  # of 100 agents; past this the list of running agents is incomplete and no run starts
 ACTIVE_WINDOW = timedelta(days=7)  # a closed issue updated within this is read in case its run is still going
 
 
@@ -95,11 +96,16 @@ class Tick:
         self.spent = {}
         tracked = [i for i in self.issues if self.repo_of(i) in self.config["repos"]
                    and (i["state"] == "open" or self.now() - ts(i["updated_at"]) < ACTIVE_WINDOW or self.fp_of(i) in running)]
-        busy = {(self.repo_of(i), self.fp_of(i)) for i in tracked if self.state(i)["phase"] != "idle"}
-        busy |= {(self.repo_of(self.by_fp[fp]), fp) for fp in running if fp in self.by_fp}  # a run Cursor shows still counts
-        self.active = {}
-        for repo, _ in busy:
-            self.active[repo] = self.active.get(repo, 0) + 1
+        # Occupancy per repo: one key per open claim (its agent id once it has one) and per agent Cursor shows running,
+        # so an agent that is both counts once and an agent that could not be cancelled keeps counting.
+        self.busy = {}
+        for issue in tracked:
+            st = self.state(issue)
+            if st["phase"] != "idle":
+                self.busy.setdefault(self.repo_of(issue), set()).add(st["cursor_id"] or st["claim"]["attempt"])
+        for fp, agents in running.items():
+            if fp in self.by_fp:
+                self.busy.setdefault(self.repo_of(self.by_fp[fp]), set()).update(agent["id"] for agent, _ in agents)
         self.cancel_unreserved(running)
         for issue in tracked:
             repo = self.repo_of(issue)
@@ -209,7 +215,11 @@ class Tick:
     def cursor_running(self):
         """{fp: [(agent, attempt)]} for this kit's agents that Cursor shows with a turn running."""
         found = {}
-        for agent in self.cursor.active():
+        agents, self.discovered = self.cursor.active(CURSOR_PAGES)
+        if not self.discovered:
+            self.log("The list of running Cursor agents is incomplete (over %d pages), so no new run starts this tick." % CURSOR_PAGES)
+        self.running_ids = {agent["id"] for agent in agents}
+        for agent in agents:
             named = AGENT_NAME.match(agent.get("name") or "")
             if named:
                 found.setdefault(named.group(1), []).append((agent, named.group(2)))
@@ -303,7 +313,8 @@ class Tick:
             prompt, model = DEFAULT_PROMPT, self.config["models"]["default"]
         else:
             return  # the Mac mini is up and has not decided yet
-        if self.active.get(repo, 0) >= caps["runs_per_repo"] or sum(self.active.values()) >= self.kit["global_runs"]:
+        if not self.discovered or len(self.busy.get(repo, ())) >= caps["runs_per_repo"] \
+                or sum(map(len, self.busy.values())) >= self.kit["global_runs"]:
             return
         if sum(self.spent.values()) + self.cost > self.kit["daily_usd"] or self.spent.get(repo, 0) + self.cost > caps["daily_usd"]:
             return self.escalate(issue, "the daily spend cap is reached")
@@ -320,7 +331,7 @@ class Tick:
         attempt = self.new_id()
         self.say(issue, m.json_marker("claim", {"attempt": attempt, "at": self.now().isoformat()})
                  + "\nAttempt %d claimed; starting a Cursor run." % number)
-        self.active[repo] = self.active.get(repo, 0) + 1
+        self.busy.setdefault(repo, set()).add(attempt)
         self.spent[repo] = self.spent.get(repo, 0) + self.cost
         fields = m.parse("intake", issue["body"])
         text = "%s\n\nContext:\n%s\n- Incident: https://github.com/%s/issues/%d\n- In the PR body, write `Fixes %s#%d` and `agent-kit fp:%s`." % (
@@ -341,9 +352,10 @@ class Tick:
 
     def finish(self, issue, attempt, outcome, text):
         """Close the claim with an outcome marker; this, not a label, frees its reservation."""
+        cursor_id = self.state(issue)["cursor_id"]
         self.say(issue, m.json_marker("result", {"attempt": attempt, "outcome": outcome}) + "\n" + text)
-        repo = self.repo_of(issue)
-        self.active[repo] = self.active.get(repo, 1) - 1
+        freed = {attempt} | ({cursor_id} - self.running_ids if cursor_id else set())  # an agent Cursor shows running stays
+        self.busy[self.repo_of(issue)] = self.busy.get(self.repo_of(issue), set()) - freed
 
     def reconcile(self, issue, st):
         """INV-8: a claim with no run line is looked up in Cursor before any retry."""

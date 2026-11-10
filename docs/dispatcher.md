@@ -114,6 +114,7 @@ resets them to match; removing or adding one by hand changes nothing. Incidents 
 dispatcher opened with an intake marker, not by label. A marker counts only when it opens a dispatcher comment, and
 text relayed from Cursor or a source is made inert, so quoted text can never pose as a marker.
 
-Each tick also lists Cursor's running agents (up to 5 pages). A running `agent-kit <fp> <attempt>` agent counts
-against its repo's caps even if its incident was closed long ago, and its incident is followed until the run ends.
-A running agent whose attempt is not its incident's open claim is cancelled.
+Each tick also lists Cursor's running agents (up to 20 pages of 100). If the list is longer, no new run starts that
+tick. A running `agent-kit <fp> <attempt>` agent counts against its repo's caps even if its incident was closed long
+ago, and its incident is followed until the run ends. A running agent whose attempt is not its incident's open claim
+is cancelled; until the cancel succeeds it keeps counting, as a separate run from the incident's own claim.
