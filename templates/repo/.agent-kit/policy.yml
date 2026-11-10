@@ -12,6 +12,6 @@ app:
 classes: {}
 floor_extra: {}
 auto_merge: [docs]
-required_checks: [{name: agent-learning-check, app: github-actions}]
+required_checks: [{name: agent-learning-check, app: github-actions}, {name: learning-proof, app: github-actions}]
 journeys: []
 caps: {runs_per_repo: 1, daily_usd: 20, max_attempts: 2}

@@ -1,4 +1,5 @@
 """`agent-kit init|journeys|sync`: onboard a repo with one draft PR, start its journeys run, bump its kit SHA."""
+import json
 import os
 import re
 import shutil
@@ -15,6 +16,8 @@ PSTACK = ("https://github.com/backnotprop/pstack", "4161d4ef5051574e825ffe70e2f4
 # Template files merged line by line into whichever existing copy the repo has, instead of being kept or overwritten.
 APPEND = {".github/CODEOWNERS": (".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"), "AGENTS.md": ("AGENTS.md",)}
 REGISTER = "Register: add %s to `agent-kit/repos.json` in agent-control so the gate, dispatcher and harvest pick it up."
+FEATURE_DOCS = ("Feature docs: create the Cursor Automation in `.agent-kit/automations/feature-docs.md` at cursor.com/automations"
+                " (trigger Pull request merged; the prompt skips `agent-kit/docs-*` and docs-only PRs).")
 USES = re.compile(r"""(uses:\s*['"]?yudduy/agent-kit/[^@\s'"]+@)([0-9a-f]{40})""")
 TITLE = "Add agent kit onboarding"
 
@@ -125,6 +128,7 @@ def init(repo, ref=None, dry_run=False, force=False):
             print("- %s%s" % (rel, " (missing lines appended if the repo already has one)" if rel in APPEND else ""))
         print("\nBranch: %s\nDraft PR: %s\n\n%s\nThen: one Cursor run on %s to propose 3-5 journeys (and add a Dockerfile if missing).\n%s"
               % (BRANCH, TITLE, pr_body(repo, sha, [(r, "create", t) for r, t in files.items()]), BRANCH, REGISTER % repo))
+        print(FEATURE_DOCS)
         return 0
     tmp, checkout = clone(repo)
     try:
@@ -147,6 +151,7 @@ def init(repo, ref=None, dry_run=False, force=False):
         shutil.rmtree(tmp)
     start_journeys(repo)
     print(REGISTER % repo)
+    print(FEATURE_DOCS)
     print("Turn off Sentry's Seer handoff and Cursor's native Sentry trigger: AGENTS.md now declares both off, and `agent-kit doctor` checks it.")
     return 0
 
@@ -174,8 +179,18 @@ def bump(checkout, new):
     return changed
 
 
+def open_bump(repo):
+    """URL of an open `agent-kit/bump-*` PR in the repo, or None."""
+    prs = json.loads(run("gh", "pr", "list", "-R", repo, "--state", "open", "--limit", "1000", "--json", "headRefName,url"))
+    return next((p["url"] for p in prs if p["headRefName"].startswith("agent-kit/bump-")), None)
+
+
 def sync(repo, ref=None):
     sha = kit_ref(ref)
+    pending = open_bump(repo)
+    if pending:
+        print("%s already has an open kit bump PR, so none was opened: %s" % (repo, pending))
+        return 0
     tmp, checkout = clone(repo)
     try:
         branch = "agent-kit/bump-" + sha[:12]

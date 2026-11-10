@@ -1,0 +1,51 @@
+# agent-kit daily kit bump (design D1). For each repo in agent-kit/repos.json, runs `agent-kit sync` at the kit's
+# current main commit, which opens one `agent-kit/bump-<sha>` PR moving every kit pin. A repo that already has an
+# open `agent-kit/bump-*` PR is skipped, so each repo has at most one bump PR at a time.
+# Environment `kit-bump` holds AGENT_KIT_BUMP_TOKEN: a fine-grained token of the agent bot account (O2), on the
+# onboarded repos only, with Contents, Pull requests and Workflows write (sync edits `.github/workflows/`) and nothing
+# else. It can open PRs but cannot merge them: rulesets require `agent-gate` from the gate App with no bypass. Its
+# account is not in any policy's `approvers`, so an approval from it never counts (INV-4). Never the gate App key.
+name: kit-bump
+on:
+  schedule:
+    - cron: "30 7 * * *"
+  workflow_dispatch:
+concurrency:
+  group: agent-kit-bump
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  bump:
+    runs-on: ubuntu-24.04
+    environment: kit-bump
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          path: control
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: yudduy/agent-kit
+          ref: main
+          path: kit
+          persist-credentials: false
+      - name: Open one bump PR per repo that needs one
+        env:
+          GH_TOKEN: ${{ secrets.AGENT_KIT_BUMP_TOKEN }}
+          GIT_AUTHOR_NAME: agent-kit bump
+          GIT_AUTHOR_EMAIL: actions@users.noreply.github.com
+          GIT_COMMITTER_NAME: agent-kit bump
+          GIT_COMMITTER_EMAIL: actions@users.noreply.github.com
+        run: |
+          gh auth setup-git
+          ref=$(git -C kit rev-parse HEAD)
+          repos=$(python3 -c 'import json; r = json.load(open("control/agent-kit/repos.json")); assert r["v"] == 1; print("\n".join(r["repos"]))')
+          failed=0
+          for repo in $repos; do
+            echo "::group::$repo"
+            python3 kit/bin/agent-kit sync "$repo" --ref "$ref" || { failed=1; echo "::error::kit bump failed for $repo"; }
+            echo "::endgroup::"
+          done
+          exit "$failed"

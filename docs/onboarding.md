@@ -21,7 +21,7 @@ The command is `agent-kit`, not `gh agent-kit`: a gh extension must live in a re
 | `agent-kit init owner/repo --dry-run` | Prints the files, branch and PR it would create. Clones nothing and calls no API. |
 | `agent-kit init owner/repo` | Shallow-clones the repo, adds the template files, pushes `agent-kit/onboard`, opens one draft PR, starts the journeys run. |
 | `agent-kit journeys owner/repo` | Starts the journeys run on `agent-kit/onboard` (use it when `init` ran without a Cursor key). |
-| `agent-kit sync owner/repo` | Opens one PR that moves every kit pin to the new kit commit: `kit_ref`, every `uses: yudduy/agent-kit/...@<sha>` line, and the old commit anywhere in a templated file (such as the learning check's checkout `ref:`). |
+| `agent-kit sync owner/repo` | Opens one PR that moves every kit pin to the new kit commit: `kit_ref`, every `uses: yudduy/agent-kit/...@<sha>` line, and the old commit anywhere in a templated file (such as the learning check's checkout `ref:`). Opens nothing while the repo has an open `agent-kit/bump-*` PR. |
 | `agent-kit doctor [repo]` | Runs the kit's doctor scan (`doctor/doctor.py`, PR #4) on a checkout; other arguments pass through. |
 | `agent-kit verify --sha <head> --scenario <id>` | Reruns verification of one commit locally with `verify/local_run.py` (PR #3). The base defaults to the merge base with `origin/HEAD`, output to `agent-kit-evidence/<sha>`; other arguments pass through. |
 
@@ -40,6 +40,12 @@ on `origin/main` (callers cannot use an unpublished commit).
   policy's `required_checks`. It runs on every PR so the gate never sees it skipped, and checks only `learn/*`
   branches: added cases pass, higher-level fixes pass with the `governance` label, edits to existing expectations,
   graders, thresholds, policy, gate or verify fail. It needs `learning/pathcheck.py` in the pinned kit commit.
+  Its second job, `learning-proof` (INV-13, also in `required_checks`), runs each added case on the base commit
+  (must fail) and on head (must pass), then the full suite on head; an added case with no assertion fails. Set the
+  repo's Actions variables `AGENT_KIT_CASE_CMD` (with `{case}`), `AGENT_KIT_SUITE_CMD` and optionally
+  `AGENT_KIT_TEST_SETUP`. It needs `learning/proof.py` in the pinned kit commit.
+- `.agent-kit/automations/feature-docs.md`: the Cursor Automation setup and prompt that update `docs/features/` after
+  each merge on main (D8). Cursor has no API to create it, so `init` prints the step and you create it by hand.
 - `AGENTS.md`: the line `<!-- agent-kit:automation v1 seer:off cursor-sentry:off -->`, appended if the file exists.
   It declares that Sentry's Seer handoff and Cursor's native Sentry trigger are off (D4); `agent-kit doctor` checks
   it, and `init` reminds you to turn both off.
@@ -63,6 +69,14 @@ one module that talks to Cursor, so it needs the dispatcher on the same kit comm
 directly and does not open its own PR. It follows pstack `create-verification-skill` at the kit's pinned commit, writes
 `.cursor/skills/verify-<app>/` and `docs/features/`, and adds each journey as a Playwright spec plus a policy entry with
 at least one stored-data assertion. Without a key, `init` still opens the PR and prints the exact next command.
+
+## Kit bumps
+
+Copy `templates/agent-control/.github/workflows/kit-bump.yml` into agent-control. Daily, it runs `agent-kit sync`
+at the kit's main commit for every repo in `agent-kit/repos.json`, skipping repos that already have an open bump PR.
+It uses `AGENT_KIT_BUMP_TOKEN` in environment `kit-bump`: a fine-grained token of the agent bot account with
+Contents, Pull requests and Workflows write on the onboarded repos. It can open PRs; rulesets stop it merging, and
+its approvals never count because the account is not an approver.
 
 ## After merge
 

@@ -62,12 +62,31 @@ class Render(unittest.TestCase):
 
     def test_learning_check_is_required_and_runs_on_every_pr(self):
         files = onboard.render("yudduy/shop", SHA)
-        self.assertIn("required_checks: [{name: agent-learning-check, app: github-actions}]", files[".agent-kit/policy.yml"])
+        self.assertRegex(files[".agent-kit/policy.yml"], r"required_checks: \[.*\{name: agent-learning-check, app: github-actions\}")
         workflow = files[".github/workflows/agent-learning-check.yml"]
         self.assertIn("name: agent-learning-check", workflow)
         self.assertNotIn("if: contains", workflow, "a skipped job would fail the gate's required check")
         self.assertIn("learn/", workflow)
         self.assertIn("governance", workflow)
+
+    def test_learning_proof_is_required_and_runs_on_every_pr(self):
+        files = onboard.render("yudduy/shop", SHA)
+        self.assertIn("{name: learning-proof, app: github-actions}", files[".agent-kit/policy.yml"])
+        workflow = files[".github/workflows/agent-learning-check.yml"]
+        job = workflow[workflow.index("name: learning-proof"):]
+        self.assertIn("learning.proof", job)
+        self.assertIn("github.event.pull_request.base.sha", job)
+        self.assertIn("github.event.pull_request.head.sha", job)
+        self.assertNotIn("write", job.split("steps:")[0], "the job that runs PR code gets read permissions only")
+        self.assertNotIn("secrets.", job)
+
+    def test_feature_docs_automation_renders_with_the_recursion_guard(self):
+        doc = onboard.render("yudduy/shop", SHA)[".agent-kit/automations/feature-docs.md"]
+        self.assertIn("Pull request merged", doc)
+        self.assertIn("yudduy/shop", doc)
+        self.assertIn("agent-kit/docs-", doc)
+        self.assertIn("only touches `docs/features/`", doc)
+        self.assertIn("Stop", doc)
 
     def test_codeowners_lines_are_appended_to_the_existing_file_and_other_files_kept(self):
         repo = checkout(**{"CODEOWNERS": "* @someone\n/.github/ @yudduy\n", "docs/features/README.md": "mine\n"})
@@ -96,6 +115,14 @@ class DryRun(unittest.TestCase):
         self.assertIn(".agent-kit/policy.yml", text)
         self.assertIn("Draft PR: Add agent kit onboarding", text)
         self.assertIn("agent-kit/onboard", text)
+
+
+    def test_dry_run_prints_the_feature_docs_setup_step(self):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            main(["init", "--dry-run", "--ref", SHA, "yudduy/shop"])
+        self.assertIn(".agent-kit/automations/feature-docs.md", out.getvalue())
+        self.assertIn("Cursor Automation", out.getvalue())
 
 
 class Journeys(unittest.TestCase):
@@ -127,6 +154,30 @@ class Sync(unittest.TestCase):
         self.assertEqual((repo / ".github/workflows/agent-verify.yml").read_text(), caller.replace(SHA, NEW))
         self.assertIn("kit_ref: " + NEW, (repo / ".agent-kit/policy.yml").read_text())
         self.assertIn(SHA, (repo / ".github/workflows/other.yml").read_text())
+
+
+class OpenBump(unittest.TestCase):
+    def test_an_open_bump_pr_is_found_and_sync_skips(self):
+        prs = '[{"headRefName": "cursor/fix-x", "url": "u1"}, {"headRefName": "agent-kit/bump-%s", "url": "u2"}]' % SHA[:12]
+        with mock.patch.object(onboard, "run", return_value=prs) as gh:
+            self.assertEqual(onboard.open_bump("yudduy/shop"), "u2")
+        self.assertEqual(gh.call_args[0][:6], ("gh", "pr", "list", "-R", "yudduy/shop", "--state"))
+        for listing in ('[]', '[{"headRefName": "agent-kit/onboard", "url": "u3"}, {"headRefName": "x/agent-kit/bump-1", "url": "u4"}]'):
+            with mock.patch.object(onboard, "run", return_value=listing):
+                self.assertIsNone(onboard.open_bump("yudduy/shop"))
+        out = io.StringIO()
+        with mock.patch.object(onboard, "open_bump", return_value="u2"), mock.patch.object(onboard, "clone") as clone, redirect_stdout(out):
+            self.assertEqual(onboard.sync("yudduy/shop", NEW), 0)
+        clone.assert_not_called()
+        self.assertIn("u2", out.getvalue())
+
+    def test_kit_bump_workflow_syncs_every_registered_repo_daily(self):
+        workflow = (onboard.KIT / "templates/agent-control/.github/workflows/kit-bump.yml").read_text()
+        self.assertIn("schedule:", workflow)
+        self.assertIn("agent-kit/repos.json", workflow)
+        self.assertIn("sync", workflow)
+        self.assertIn("AGENT_KIT_BUMP_TOKEN", workflow)
+        self.assertNotIn("merge-gate", workflow)
 
 
 class SyncPins(unittest.TestCase):
