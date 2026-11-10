@@ -52,9 +52,10 @@ def steer(gh, client, ctl, issue, text):
     if before["status"] not in cursor.ACTIVE:
         raise SystemExit("The run for issue #%d is %s, not active; steering it would start a new run." % (issue, before["status"]))
     result = client.steer(cursor_id, text)
-    after = client.latest_run(cursor_id)
+    after = client.latest_run(cursor_id) if result.get("delivery") == "queued" else before
     if after["id"] != before["id"]:
-        # shortcut: Cursor has no "steer only if running" precondition, so a run the steer started is cancelled at once.
+        # shortcut: Cursor has no "steer only if running" precondition. A queued steer becomes the agent's next run,
+        # so that run is cancelled at once; a steer the running turn accepted is left alone.
         client.cancel(cursor_id, after["id"])
         raise SystemExit("The run for issue #%d ended before the steer landed; cancelled run %s it started." % (issue, after["id"]))
     return result

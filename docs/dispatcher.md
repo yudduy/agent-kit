@@ -91,7 +91,7 @@ The helper never creates runs; only the dispatcher does (D5). `steer` follows up
 dispatcher for the issue's current claim (after any reopen), and only while that run is active: a steer to an idle
 agent would become its next run. Any other run marker is refused. Cursor has no "steer only if running" option, so
 if the run ends between the check and the steer and the steer starts a new run, the helper cancels that run at once
-and reports it.
+and reports it; a steer the running turn accepted is left alone, so if that turn ends first the prompt can still start one run (a Cursor limit).
 
 ## Cursor
 

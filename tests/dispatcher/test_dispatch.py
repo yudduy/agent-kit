@@ -396,6 +396,42 @@ class IdleCloseEdges(unittest.TestCase):
         self.assertEqual(w.gh.issues_[1]["state"], "open", "an event after the pull started reopens an idle-closed issue")
 
 
+class IdleMarkerScope(unittest.TestCase):
+    def test_an_old_idle_marker_does_not_govern_a_later_manual_close(self):
+        w = World()
+        w.tick()
+        w.cursor_server.run_status = "FINISHED"
+        w.tick()
+        w.clock.advance(31 * 24 * 60)
+        w.rows = lambda repo, s: []
+        w.tick()
+        self.assertEqual(w.gh.issues_[1]["state"], "closed")
+        back = w.clock.iso()
+        w.rows = lambda repo, s: sources.sentry("acme", "shop", "t", send=sentry_row("yudduy/shop", lastSeen=back))
+        w.tick()
+        self.assertEqual(w.gh.issues_[1]["state"], "open")
+        w.tick()  # its new run finishes
+        w.clock.advance(60)
+        w.gh.issues_[1].update(state="closed", closed_at=w.clock.iso())  # a person closes it after the fix
+        w.tick()
+        self.assertEqual(w.gh.issues_[1]["state"], "closed", "the same old event does not reopen a manual close")
+
+    def test_an_idle_marker_does_not_govern_a_manual_reopen_and_close(self):
+        w = World()
+        w.tick()
+        w.cursor_server.run_status = "FINISHED"
+        w.tick()
+        w.clock.advance(31 * 24 * 60)
+        w.rows = lambda repo, s: []
+        w.tick()
+        event = w.clock.iso()
+        w.clock.advance(60)
+        w.gh.issues_[1].update(state="closed", closed_at=w.clock.iso())  # a person reopened and closed it again
+        w.rows = lambda repo, s: sources.sentry("acme", "shop", "t", send=sentry_row("yudduy/shop", lastSeen=event))
+        w.tick()
+        self.assertEqual(w.gh.issues_[1]["state"], "closed")
+
+
 class Pagination(unittest.TestCase):
     def test_sentry_follows_next_links_until_results_run_out(self):
         pages = {None: (["1", "2"], True), "c1": (["3"], False)}

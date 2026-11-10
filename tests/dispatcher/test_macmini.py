@@ -80,6 +80,15 @@ class MacMiniHelper(unittest.TestCase):
         client.cancel.assert_called_once_with("bc-a", "run-2")
         self.assertIn("cancelled", str(stop.exception))
 
+    def test_a_steered_prompt_never_cancels_a_run_it_did_not_start(self):
+        self.dispatcher_says("claim", {"attempt": "a", "at": "x"})
+        self.dispatcher_says("run", {"attempt": "a", "cursor_id": "bc-a"})
+        client = mock.Mock()
+        client.latest_run.side_effect = [{"id": "run-1", "status": "RUNNING"}, {"id": "run-2", "status": "RUNNING"}]
+        client.steer.return_value = {"delivery": "steered", "runId": "run-1"}
+        macmini.steer(self.gh, client, CTL, 2, "hi")
+        client.cancel.assert_not_called()
+
     def test_steer_refuses_an_idle_agent_because_that_would_start_a_run(self):
         self.dispatcher_says("claim", {"attempt": "a", "at": "x"})
         self.dispatcher_says("run", {"attempt": "a", "cursor_id": "bc-a"})
