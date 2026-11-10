@@ -28,7 +28,7 @@ JWT = re.compile(r"\beyJ[0-9A-Za-z_-]+\.(eyJ[0-9A-Za-z_-]+)\.[0-9A-Za-z_-]+")
 DB_URL = re.compile(r"\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|rediss?)://[^\s'\"]+")
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0", "host.docker.internal"}
 PROD_NAME = re.compile(r"(^|_)(PROD|PRODUCTION)(_|$)|SERVICE_ROLE|^VERCEL_TOKEN$|^SUPABASE_ACCESS_TOKEN$")
-NAME_IN_TEXT = re.compile(r"""\b(?:secrets|vars|env)(?:\.(\w+)|\[["'](\w+)["']\])|\b([A-Z][A-Z0-9_]*)["']?\s*[:=]""")
+NAME_IN_TEXT = re.compile(r"""\b(?:secrets|vars|env)(?:\.(\w+)|\[\s*["'](\w+)["']\s*\])|\b([A-Z][A-Z0-9_]*)["']?\s*[:=]""")
 
 
 def _redact(value):

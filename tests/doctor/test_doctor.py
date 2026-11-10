@@ -63,7 +63,7 @@ class Doctor(unittest.TestCase):
                 "REPLICA_URL": "postgresql://u@[2001:db8::2]:5432/app"}}))
             write(tmp, ".github/workflows/ci.yml",
                   f"env:\n  STRIPE_KEY: {STRIPE_LIVE}\n  DB: ${{{{ secrets.PROD_DATABASE_URL }}}}\n"
-                  "  KEY: ${{ secrets['STRIPE_PRODUCTION_KEY'] }}\n"
+                  "  KEY: ${{ secrets[ 'STRIPE_PRODUCTION_KEY' ] }}\n"
                   "  VERCEL_ENV: production\n")
             write(tmp, "dump.env", f"SUPABASE_KEY={SERVICE_ROLE_JWT}\nNEXT_PUBLIC_URL=https://example.com\n")
             write(tmp, "names.txt", "SUPABASE_SERVICE_ROLE_KEY\nVERCEL_TOKEN\nGITHUB_TOKEN\n")
