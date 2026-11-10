@@ -42,6 +42,8 @@ def decide(f):
         blocking.append("pull requests from forks are not supported")
     if len(f.files) >= 300:  # the compare API lists at most 300 files
         blocking.append("the change has 300 or more files, so the gate cannot see all of it")
+    if len(f.commits) >= 250:  # the PR commits API lists at most 250, so a hidden committer could approve
+        blocking.append("the pull request has 250 or more commits, so the gate cannot check every committer")
     if f.behind_by:
         blocking.append(f"branch is {f.behind_by} commit(s) behind the base branch")
     try:

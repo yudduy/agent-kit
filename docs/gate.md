@@ -104,5 +104,6 @@ A fixture directory holds `api.json` (each `GET` path mapped to its JSON respons
 ## Known limits
 
 - Merge queues are not supported: the gate merges through the merge API and does not run on `merge_group`.
-- Fork PRs fail closed. Changes with 300 or more files fail closed (the compare API stops listing files there).
+- Fork PRs fail closed. Changes with 300 or more files, or pull requests with 250 or more commits, fail closed (the API stops listing them there).
+- A slow regex in a repo class's `added_lines` (written in a human-approved policy) can stall a tick until the 15-minute job timeout; the gate then posts nothing new, so nothing merges.
 - A file with no visible patch (binary or very large) counts as `review`, so a docs PR that adds an image needs an approval.

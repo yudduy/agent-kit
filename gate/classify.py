@@ -75,8 +75,7 @@ def _file_hits(entry, rules):
     patch = entry.get("patch")
     added = [line[1:] for line in (patch or "").splitlines() if line.startswith("+")]
     removed = [line[1:] for line in (patch or "").splitlines() if line.startswith("-")]
-    line_hits = {name for name, _, line_patterns in rules if any(r.search(a) for r in line_patterns for a in added)}
-    hits = set(line_hits)
+    hits = {name for name, _, line_patterns in rules if any(r.search(a) for r in line_patterns for a in added)}
     for path in paths:  # both sides of a rename; a side no class claims is review
         hits |= {name for name, globs, _ in rules if any(glob_matches(g, path) for g in globs)} or {"review"}
     if entry["status"] == "removed":

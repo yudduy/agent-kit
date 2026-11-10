@@ -143,6 +143,8 @@ class DecideTest(unittest.TestCase):
         f.pr["head"]["repo"] = {"full_name": "someone/fork"}
         self.assertBlocked(gate(f), "forks are not supported")
         self.assertBlocked(gate(facts(files=[change(f"docs/{i}.md") for i in range(300)])), "300 or more files")
+        bot_commit = {"author": {"login": "agent-bot[bot]"}, "committer": {"login": "web-flow"}}
+        self.assertBlocked(gate(facts(commits=[bot_commit] * 250)), "250 or more commits")
 
     def test_only_prs_into_the_default_branch_pass_inv3(self):
         f = facts()
