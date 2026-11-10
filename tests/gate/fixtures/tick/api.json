@@ -155,7 +155,10 @@
         }
       },
       "base": {
-        "ref": "main"
+        "ref": "main",
+        "repo": {
+          "default_branch": "main"
+        }
       }
     },
     {
@@ -172,7 +175,10 @@
         }
       },
       "base": {
-        "ref": "main"
+        "ref": "main",
+        "repo": {
+          "default_branch": "main"
+        }
       }
     }
   ]

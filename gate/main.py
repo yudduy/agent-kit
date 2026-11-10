@@ -16,6 +16,7 @@ import os
 import re
 import sys
 import traceback
+import zipfile
 from urllib.parse import quote
 
 from gate.decide import Facts, decide, summary, record_from_summary
@@ -35,22 +36,25 @@ REPO_NAME = re.compile(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+$")
 def run(client_for, control, control_repo, paused, app_id, day):
     """One gate tick. client_for(repo) returns a client for that repo; control writes the decisions log.
 
-    Returns the number of PRs that raised an error (each such PR keeps its previous check).
+    Returns the number of repos and PRs that raised an error; each keeps its previous check.
     """
-    errors, records = 0, []
-    try:
-        for repo in load_config(control, control_repo):
+    errors = 0
+    for repo in load_config(control, control_repo):
+        try:
             client = client_for(repo)
-            for pr in client.pages(f"/repos/{repo}/pulls?state=open"):
-                try:
-                    gate_pr(client, repo, pr, paused, app_id, records)
-                except Exception:
-                    errors += 1
-                    print(f"{repo}#{pr['number']}: gate error", file=sys.stderr)
-                    traceback.print_exc()
-    finally:
-        if records:
-            append_log(control, control_repo, records, day)
+            prs = client.pages(f"/repos/{repo}/pulls?state=open")
+        except Exception:
+            errors += 1
+            print(f"{repo}: cannot list pull requests", file=sys.stderr)
+            traceback.print_exc()
+            continue
+        for pr in prs:
+            try:
+                gate_pr(client, repo, pr, paused, app_id, lambda record: append_log(control, control_repo, record, day))
+            except Exception:
+                errors += 1
+                print(f"{repo}#{pr['number']}: gate error", file=sys.stderr)
+                traceback.print_exc()
     return errors
 
 
@@ -63,10 +67,11 @@ def load_config(control, control_repo):
 
 
 def gate_pr(client, repo, pr, paused, app_id, log):
-    """Decide one PR: post the check when the decision changed (and add it to log), then merge an auto-class pass."""
+    """Decide one PR. A changed decision is logged first, then posted; then an auto-class pass is merged."""
     facts, previous = gather(client, repo, pr, paused, app_id)
     record = decide(facts)
     if record != previous:
+        log(record)
         title, text = summary(record)
         client.post(f"/repos/{repo}/check-runs", {
             "name": CHECK_NAME,
@@ -75,7 +80,6 @@ def gate_pr(client, repo, pr, paused, app_id, log):
             "conclusion": record["conclusion"],
             "output": {"title": title, "summary": text},
         })
-        log.append(record)
     if record["conclusion"] == "success" and record["class"] in parse(facts.policy_text)["auto_merge"] and not pr["draft"]:
         client.put(f"/repos/{repo}/pulls/{pr['number']}/merge", {"sha": record["head_sha"]})
 
@@ -94,15 +98,17 @@ def gather(client, repo, pr, paused, app_id):
     except NotFound:
         journeys_sha = None
 
-    checks, previous = {}, None
-    for status in client.get(f"/repos/{repo}/commits/{head}/status")["statuses"]:
-        checks[status["context"]] = status["state"]
+    runs, previous = {}, None
     for check in sorted(client.pages(f"/repos/{repo}/commits/{head}/check-runs", "check_runs"), key=lambda c: c["id"]):
         if check["name"] == CHECK_NAME:
             if app_id is not None and (check.get("app") or {}).get("id") == app_id:
                 previous = record_from_summary(check["output"]["summary"])
             continue
-        checks[check["name"]] = check["conclusion"] if check["status"] == "completed" else "pending"
+        runs[check["name"]] = check["conclusion"] if check["status"] == "completed" else "pending"  # latest run per name
+    checks = {status["context"]: status["state"] for status in client.get(f"/repos/{repo}/commits/{head}/status")["statuses"]}
+    for name, state in runs.items():  # GitHub needs both a status and a check run of one name to pass
+        if checks.get(name, "success") == "success":
+            checks[name] = state
 
     facts = Facts(
         repo=repo,
@@ -130,7 +136,10 @@ def _attach_evidence(client, facts, kit_ref):
         artifacts = client.get(f"/repos/{facts.repo}/actions/runs/{workflow_run['id']}/artifacts?name={EVIDENCE_ARTIFACT}")
         artifact = next((a for a in artifacts["artifacts"] if a["name"] == EVIDENCE_ARTIFACT and not a["expired"] and a["size_in_bytes"] <= MAX_ARTIFACT_BYTES), None)
         if artifact:
-            files = client.artifact_files(facts.repo, artifact["id"], MAX_ARTIFACT_BYTES)
+            try:
+                files = client.artifact_files(facts.repo, artifact["id"], MAX_ARTIFACT_BYTES)
+            except (zipfile.BadZipFile, RuntimeError, OSError):
+                return
             facts.evidence = files.get("evidence.json")
             facts.artifact_files = {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}
             if facts.evidence is not None and kit_ref:
@@ -150,16 +159,16 @@ def _file(client, repo, path, ref):
     return base64.b64decode(data["content"]).decode(), data["sha"]
 
 
-def append_log(control, control_repo, records, day):
-    """Append one JSON line per decision to decisions/<day>.jsonl on the decisions-log branch (D11)."""
+def append_log(control, control_repo, record, day):
+    """Append the decision as one JSON line to decisions/<day>.jsonl on the decisions-log branch (D11)."""
     path = f"/repos/{control_repo}/contents/decisions/{day}.jsonl"
     try:
         current = control.get(f"{path}?ref={LOG_BRANCH}")
         old, sha = base64.b64decode(current["content"]), current["sha"]
     except NotFound:
         old, sha = b"", None
-    lines = "".join(json.dumps(record) + "\n" for record in records).encode()
-    body = {"message": f"Log {len(records)} gate decision(s)", "content": base64.b64encode(old + lines).decode(), "branch": LOG_BRANCH}
+    line = (json.dumps(record) + "\n").encode()
+    body = {"message": f"Log gate decision for {record['repo']}#{record['pr']}", "content": base64.b64encode(old + line).decode(), "branch": LOG_BRANCH}
     if sha:
         body["sha"] = sha
     control.put(path, body)

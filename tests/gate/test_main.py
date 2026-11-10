@@ -6,6 +6,7 @@ import re
 import subprocess
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 from gate import main as gate_main
@@ -37,9 +38,10 @@ class TickTest(unittest.TestCase):
         merges = [(path, body) for method, path, body in writes if path.endswith("/merge")]
         self.assertEqual(merges, [(f"/repos/{REPO}/pulls/12/merge", {"sha": HEAD})])
         log = [body for method, path, body in writes if path == f"/repos/{CONTROL}/contents/decisions/2026-11-10.jsonl"]
-        self.assertEqual(log[0]["branch"], "decisions-log")
-        lines = base64.b64decode(log[0]["content"]).decode().splitlines()
-        self.assertEqual([json.loads(line)["pr"] for line in lines], [12, 13])
+        self.assertEqual([body["branch"] for body in log], ["decisions-log", "decisions-log"])
+        self.assertEqual([json.loads(base64.b64decode(body["content"]))["pr"] for body in log], [12, 13])
+        self.assertEqual(kinds(writes)[:3], [("PUT", f"/repos/{CONTROL}/contents/decisions/2026-11-10.jsonl"),
+                                             ("POST", f"/repos/{REPO}/check-runs"), ("PUT", f"/repos/{REPO}/pulls/12/merge")])
 
     def test_paused_posts_verdicts_but_never_merges(self):
         errors, writes = tick(Fixture(FIXTURE), paused=True)
@@ -65,6 +67,40 @@ class TickTest(unittest.TestCase):
                              "app": {"id": APP_ID}, "output": {"summary": body["output"]["summary"]}})
         fixture.writes.clear()
         self.assertEqual(tick(fixture)[1], [("PUT", f"/repos/{REPO}/pulls/12/merge", {"sha": HEAD})])
+
+    def test_failing_status_is_not_hidden_by_a_passing_check_run(self):
+        fixture = Fixture(FIXTURE)
+        fixture.api[f"/repos/{REPO}/commits/{HEAD}/status"]["statuses"] = [{"context": "test", "state": "failure"}]
+        _, writes = tick(fixture)
+        self.assertNotIn(("PUT", f"/repos/{REPO}/pulls/12/merge"), kinds(writes))
+
+    def test_unreachable_repo_does_not_stop_the_others(self):
+        fixture = Fixture(FIXTURE)
+        config = {"v": 1, "repos": ["gone/repo", REPO]}
+        fixture.api[f"/repos/{CONTROL}/contents/agent-kit/repos.json?ref=main"]["content"] = base64.b64encode(json.dumps(config).encode()).decode()
+        with contextlib.redirect_stderr(io.StringIO()):
+            errors, writes = tick(fixture)
+        self.assertEqual(errors, 1)
+        self.assertIn(("PUT", f"/repos/{REPO}/pulls/12/merge"), kinds(writes))
+
+    def test_no_check_or_merge_without_a_durable_log_line(self):
+        fixture = Fixture(FIXTURE)
+        def refuse(path, body):
+            raise RuntimeError("HTTP 403")
+        fixture.put = refuse
+        with contextlib.redirect_stderr(io.StringIO()):
+            errors, writes = tick(fixture)
+        self.assertEqual((errors, writes), (2, []))
+
+    def test_unreadable_evidence_artifact_fails_the_check(self):
+        fixture = Fixture(FIXTURE)
+        def corrupt(repo, artifact_id, max_bytes):
+            raise zipfile.BadZipFile("File is not a zip file")
+        fixture.artifact_files = corrupt
+        _, writes = tick(fixture)
+        body = next(b for _, p, b in writes if p.endswith("/check-runs") and b["head_sha"] == HEAD)
+        self.assertEqual(body["conclusion"], "failure")
+        self.assertIn('"evidence": "missing"', body["output"]["summary"])
 
     def test_oversized_evidence_artifact_counts_as_missing(self):
         fixture = Fixture(FIXTURE)

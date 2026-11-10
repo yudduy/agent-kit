@@ -18,16 +18,19 @@ class ClassifyTest(unittest.TestCase):
     def test_governance_paths_inv9_inv12(self):
         for path in (".agent-kit/policy.yml", ".agent-kit/journeys/save-profile.spec.ts", ".github/workflows/ci.yml",
                      ".github/README.md", ".cursor/skills/verify-app/SKILL.md", "CODEOWNERS", "docs/CODEOWNERS",
-                     "AGENTS.md", "src/AGENTS.md", "CLAUDE.md", "db/seed.sql", "evals/grader.py"):
+                     "AGENTS.md", "src/AGENTS.md", "CLAUDE.md", "db/seed.sql", "evals/grader.py", "fixtures/profile.md",
+                     "tests/fixtures/sentry/event.json", "skills/evals/cases.json"):
             with self.subTest(path):
                 self.assertEqual(cls(change(path))[0], "governance")
 
     def test_floor_holds_without_repo_policy(self):
         self.assertEqual(cls(change(".github/workflows/ci.yml"), policy=None)[0], "governance")
         self.assertEqual(cls(change(".agent-kit/policy.yml"), policy={})[0], "governance")
+        self.assertEqual(cls(change("fixtures/a.md"), policy=None)[0], "governance")
 
-    def test_rename_out_of_governance_is_governance(self):
+    def test_renames_count_both_paths(self):
         self.assertEqual(cls(change("ci.yml", status="renamed", previous_filename=".github/workflows/ci.yml"))[0], "governance")
+        self.assertEqual(cls(change("docs/save.md", status="renamed", previous_filename="src/profile/save.ts")), ("review", ["review", "docs"]))
 
     def test_migration_path_is_never_docs_or_auto(self):
         self.assertEqual(cls(change("db/migrations/001.sql"))[0], "migrations")

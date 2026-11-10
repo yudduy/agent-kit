@@ -34,6 +34,8 @@ class Facts:
 def decide(f):
     head = f.pr["head"]["sha"]
     blocking = []
+    if f.pr["base"]["ref"] != f.pr["base"]["repo"]["default_branch"]:
+        blocking.append(f"only pull requests into {f.pr['base']['repo']['default_branch']} are gated")
     if f.paused:
         blocking.append("the gate is paused (AGENT_KIT_PAUSED)")
     if f.pr["head"]["repo"] is None or f.pr["head"]["repo"]["full_name"] != f.repo:
@@ -181,7 +183,7 @@ def _evidence_problems(f, policy, head, evidence):
         if f.artifact_files.get(artifact["name"]) != artifact["sha256"]:
             problems.append(f"artifact {artifact['name']} hash does not match")
     scenarios = {s["id"]: s for s in evidence["scenarios"]}
-    paths = [entry["filename"] for entry in f.files]
+    paths = [path for entry in f.files for path in (entry["filename"], entry.get("previous_filename")) if path]
     for journey in policy["journeys"]:
         if not any(glob_matches(area, path) for area in journey["areas"] for path in paths):
             continue

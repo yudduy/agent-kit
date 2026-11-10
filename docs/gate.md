@@ -2,7 +2,7 @@
 
 The gate decides every open pull request in every onboarded repo and posts the `agent-gate` check (contract C5 in the [design record](design/2026-11-10-agent-kit.md)). It merges a pull request only when the check passes and the change class is on the repo's auto list (phase 1: `docs`, `kit-bump`). Every other class needs an approval from a listed human on the exact head commit; the gate then turns green and a human merges.
 
-It runs as a scheduled workflow in private `yudduy/agent-control`, every 5 minutes, and reads everything through the GitHub API. It never checks out, builds or runs pull request code (INV-2). Policy and journeys come from the base branch tip, never the pull request (INV-3).
+It runs as a scheduled workflow in private `yudduy/agent-control`, every 5 minutes, and reads everything through the GitHub API. It never checks out, builds or runs pull request code (INV-2). Policy and journeys come from the default branch tip, never the pull request (INV-3); a pull request into any other branch fails.
 
 ## One-time setup (org owner)
 
@@ -72,9 +72,9 @@ The gate reads it from agent-control `main` through the API. Any other shape sto
 
 ## What the gate reads and writes
 
-- Reads, per open PR: the base branch tip, `compare/<base tip>...<head>` (paths and patches), `.agent-kit/policy.yml` and the `.agent-kit/journeys` tree sha at the base tip, check runs and statuses on head, reviews, PR commits, and the evidence artifact.
+- Reads, per open PR: the base branch tip, `compare/<base tip>...<head>` (paths and patches), `.agent-kit/policy.yml` and the `.agent-kit/journeys` tree sha at the base tip, check runs and statuses on head, reviews, PR commits, and the evidence artifact. A required check passes only if the latest check run and the commit status of that name (whichever exist) are both `success`.
 - Evidence: the newest non-expired artifact named `agent-kit-evidence` from a `pull_request` run on the head SHA. It holds `evidence.json` at its root plus every file listed in `artifacts`. The gate runs `gh attestation verify evidence.json --repo OWNER/REPO --signer-workflow yudduy/agent-kit/.github/workflows/verify.yml --signer-digest <base kit_ref> --deny-self-hosted-runners`, then checks the attested run id and every C2 field against base.
-- Writes: one `agent-gate` check run on head (only when the decision changed), a merge with `sha=head` for passing auto-class PRs, and one JSON line per decision appended to `decisions/<UTC date>.jsonl` on the `decisions-log` branch, using the workflow's own `GITHUB_TOKEN`.
+- Writes, in this order: one JSON line appended to `decisions/<UTC date>.jsonl` on the `decisions-log` branch (with the workflow's own `GITHUB_TOKEN`), then the `agent-gate` check run on head, both only when the decision changed; then a merge with `sha=head` for a passing auto-class PR, retried each tick until it lands. If the log write fails, nothing is posted or merged for that PR.
 - The App installation token is minted per repo and scoped to that repo. The App JWT is signed RS256 by the `openssl` CLI (the Python standard library has no RSA; `openssl` and `gh` ship on GitHub-hosted runners).
 
 ## Emergency pause
@@ -89,7 +89,8 @@ While paused the gate still posts verdicts, but every check is `failure` with th
 
 - The gate parses a YAML subset with the standard library: block maps and lists, one-line `[...]` and `{...}`, quoted and plain scalars, `#` comments. Anchors, aliases, tags, `|`/`>` blocks and multi-line flow are rejected, which fails the gate. Quote globs that start with `*`, such as `"*.md"`.
 - Repo classes match by `paths` (globs, `**` crosses folders) and/or `added_lines` (Python regexes on added lines).
-- The kit floor is hard-coded in `gate/policy.py` and `gate/classify.py`; `floor_extra` can only add paths. Declare eval files, graders and Sentry-event fixtures as governance there so learning PRs that touch them need a human (INV-12): `floor_extra: {governance: {paths: ["evals/**", "fixtures/sentry/**"]}}`.
+- The kit floor is hard-coded in `gate/policy.py` and `gate/classify.py`; `floor_extra` can only add paths. Governance always covers `.agent-kit/**`, `.github/**`, `.cursor/**` (verify skills), `CODEOWNERS`, `docs/CODEOWNERS`, every `AGENTS.md` and `CLAUDE.md`, any `fixtures/` or `evals/` folder, the policy's seed file and journey specs (INV-9, INV-12). Add other grader or fixture paths with `floor_extra: {governance: {paths: [...]}}`.
+- Renames count both paths: moving a file out of a class still counts as touching it.
 
 ## Run locally
 

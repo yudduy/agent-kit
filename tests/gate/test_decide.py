@@ -144,6 +144,17 @@ class DecideTest(unittest.TestCase):
         self.assertBlocked(gate(f), "forks are not supported")
         self.assertBlocked(gate(facts(files=[change(f"docs/{i}.md") for i in range(300)])), "300 or more files")
 
+    def test_only_prs_into_the_default_branch_pass_inv3(self):
+        f = facts()
+        f.pr["base"]["ref"] = "agent-base"
+        self.assertBlocked(gate(f), "only pull requests into main are gated")
+
+    def test_rename_out_of_a_journey_area_still_needs_the_journey(self):
+        moved = [change("docs/save.md", status="renamed", previous_filename="src/profile/save.ts")]
+        record = gate(facts(files=moved, edit=lambda d: d.__setitem__("scenarios", [])))
+        self.assertEqual(record["class"], "review")
+        self.assertBlocked(record, "journey save-profile did not pass")
+
     def test_paused_blocks_and_shadow_says_would_not(self):
         record = gate(facts(paused=True))
         self.assertBlocked(record, "paused")

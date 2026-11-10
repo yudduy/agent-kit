@@ -5,7 +5,8 @@ import re
 from gate.policy import FLOOR_CLASSES
 
 PRECEDENCE = FLOOR_CLASSES + ("review", "kit-bump", "docs")
-GOVERNANCE_PATHS = (".agent-kit/**", ".github/**", ".cursor/**", "CODEOWNERS", "docs/CODEOWNERS", "**/AGENTS.md", "**/CLAUDE.md")
+GOVERNANCE_PATHS = (".agent-kit/**", ".github/**", ".cursor/**", "CODEOWNERS", "docs/CODEOWNERS", "**/AGENTS.md", "**/CLAUDE.md",
+                    "**/fixtures/**", "**/evals/**")
 DOCS_PATHS = ("docs/**", "**/*.md")
 KIT_CALLER_PATHS = (".github/workflows/**", ".agent-kit/policy.yml")
 DESTRUCTIVE_LINE = re.compile(r"\b(DROP|TRUNCATE|DELETE FROM)\b|\brm -rf\b")
@@ -74,11 +75,10 @@ def _file_hits(entry, rules):
     patch = entry.get("patch")
     added = [line[1:] for line in (patch or "").splitlines() if line.startswith("+")]
     removed = [line[1:] for line in (patch or "").splitlines() if line.startswith("-")]
-    hits = {
-        name
-        for name, globs, line_patterns in rules
-        if any(glob_matches(g, p) for g in globs for p in paths) or any(r.search(a) for r in line_patterns for a in added)
-    }
+    line_hits = {name for name, _, line_patterns in rules if any(r.search(a) for r in line_patterns for a in added)}
+    hits = set(line_hits)
+    for path in paths:  # both sides of a rename; a side no class claims is review
+        hits |= {name for name, globs, _ in rules if any(glob_matches(g, path) for g in globs)} or {"review"}
     if entry["status"] == "removed":
         hits.add("destructive")
     elif patch is None:
@@ -86,4 +86,4 @@ def _file_hits(entry, rules):
     changed = [line for line in added + removed if line.strip()]
     if changed and any(glob_matches(g, paths[0]) for g in KIT_CALLER_PATHS) and all(KIT_BUMP_LINE.match(l) for l in changed):
         hits.add("kit-bump")
-    return hits or {"review"}
+    return hits
