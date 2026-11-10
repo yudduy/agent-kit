@@ -1,0 +1,39 @@
+# INV-12 path check, required on every PR so the gate never sees it skipped. It checks only learning PRs (head
+# branch `learn/*`): added test or eval cases pass; higher-level fixes pass but get the `governance` label so only
+# a human can approve; edits to existing expectations, graders, thresholds, policy, gate or verify fail.
+# Runs kit code at the pinned commit and reads the PR's file list through the API; it never runs PR code.
+name: agent-learning-check
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  pathcheck:
+    name: agent-learning-check
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Skip non-learning PRs
+        if: ${{ !startsWith(github.head_ref, 'learn/') }}
+        run: echo "Not a learning PR (head branch is not learn/*)."
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        if: ${{ startsWith(github.head_ref, 'learn/') }}
+        with:
+          repository: yudduy/agent-kit
+          ref: {{KIT_REF}}
+          path: kit
+          persist-credentials: false
+      - name: Check changed paths
+        if: ${{ startsWith(github.head_ref, 'learn/') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq ".[]" > files.jsonl
+          set +e; python3 kit/learning/pathcheck.py --files files.jsonl; code=$?; set -e
+          if [ "$code" = 10 ]; then
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/labels" -f "labels[]=governance" > /dev/null
+            exit 0
+          fi
+          exit "$code"
