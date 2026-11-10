@@ -5,8 +5,9 @@ import re
 from gate.policy import FLOOR_CLASSES
 
 PRECEDENCE = FLOOR_CLASSES + ("review", "kit-bump", "docs")
-GOVERNANCE_PATHS = (".agent-kit/**", ".github/**", ".cursor/**", "CODEOWNERS", "docs/CODEOWNERS", "**/AGENTS.md", "**/CLAUDE.md",
-                    "**/fixtures/**", "**/evals/**")
+# Agent instructions and skills are rules, so they are governance (INV-11). `**/X` also matches a root `X`.
+GOVERNANCE_PATHS = (".agent-kit/**", ".github/**", ".cursor/**", ".claude/**", ".agents/**", "CODEOWNERS", "docs/CODEOWNERS",
+                    "**/AGENTS.md", "**/CLAUDE.md", "**/SKILL.md", "**/skills/**", "docs/design/**", "**/fixtures/**", "**/evals/**")
 DOCS_PATHS = ("docs/**", "**/*.md")
 KIT_CALLER_PATHS = (".github/workflows/**", ".agent-kit/policy.yml")
 DESTRUCTIVE_LINE = re.compile(r"\b(DROP|TRUNCATE|DELETE FROM)\b|\brm -rf\b")
@@ -32,8 +33,9 @@ def glob_matches(glob, path):
     return re.fullmatch(pattern, path) is not None
 
 
-def classify(files, policy):
+def classify(files, policy, head_ref=""):
     """files: compare-API `files` entries. policy: a valid C1 dict, or None for the kit floor alone.
+    head_ref: the PR's head branch; a `learn/*` branch is always governance (INV-11). Labels are never read.
 
     Returns (class, classes_hit) with classes_hit ordered most restrictive first.
     """
@@ -41,6 +43,8 @@ def classify(files, policy):
     hits = set()
     for entry in files:
         hits |= _file_hits(entry, rules)
+    if head_ref.startswith("learn/"):
+        hits.add("governance")
     ordered = sorted(hits or {"review"}, key=lambda name: (_rank(name), name))
     return ordered[0], ordered
 
