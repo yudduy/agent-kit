@@ -15,14 +15,14 @@ from urllib.parse import urlsplit
 KIT_FILES = [".agent-kit/policy.yml", ".agent-kit/journeys", ".github/workflows/agent-verify.yml",
              ".cursor/environment.json", "docs/features"]
 CODEOWNERS = ["CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"]
-CALLER = re.compile(r"uses:\s*yudduy/agent-kit/\.github/workflows/verify\.yml@(\S+)")
-AUTOMATION_MARKER = re.compile(r"<!-- agent-kit:automation v1 seer:off cursor-sentry:off -->")
+CALLER = re.compile(r"""uses:\s*["']?yudduy/agent-kit/\.github/workflows/verify\.yml@([^\s"']+)""")
+AUTOMATION_MARKER = "<!-- agent-kit:automation v1 seer:off cursor-sentry:off -->"
 
 SECRET_VALUES = [
     (re.compile(r"\b[sr]k_live_[0-9A-Za-z]{8,}"), "Stripe live secret key"),
     (re.compile(r"\bsb_secret_[0-9A-Za-z_-]{8,}"), "Supabase secret key"),
     (re.compile(r"https://[a-z0-9]{20}\.supabase\.co\b"), "hosted Supabase project URL"),
-    (re.compile(r"\bVERCEL_ENV\s*[=:]\s*['\"]?production\b"), "Vercel production binding"),
+    (re.compile(r"""\bVERCEL_ENV["']?\s*[=:]\s*["']?production\b"""), "Vercel production binding"),
 ]
 JWT = re.compile(r"\beyJ[0-9A-Za-z_-]+\.(eyJ[0-9A-Za-z_-]+)\.[0-9A-Za-z_-]+")
 DB_URL = re.compile(r"\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|rediss?)://[^\s'\"]+")
@@ -55,9 +55,9 @@ def scan_text(text):
             host = urlsplit(m.group(0)).hostname or ""
         except ValueError:
             host = "?"
-        if host not in LOCAL_HOSTS and "." in host:
+        if host not in LOCAL_HOSTS and ("." in host or ":" in host):
             found.append(f"database URL with a remote host: {host}")
-    return found
+    return found + scan_names(names_in(text))
 
 
 def scan_names(names):
@@ -79,19 +79,22 @@ def check_repo(repo):
         findings.append(".cursor/skills/verify-<app>/: missing")
     caller = repo / ".github/workflows/agent-verify.yml"
     if caller.is_file():
-        for ref in CALLER.findall(caller.read_text()):
+        refs = CALLER.findall(caller.read_text())
+        if not refs:
+            findings.append(f"{caller.relative_to(repo)}: does not call yudduy/agent-kit verify.yml")
+        for ref in refs:
             if not re.fullmatch(r"[0-9a-f]{40}", ref):
                 findings.append(f"{caller.relative_to(repo)}: kit is pinned to {ref!r}, not a full commit SHA")
     agents = repo / "AGENTS.md"
-    if not (agents.is_file() and AUTOMATION_MARKER.search(agents.read_text())):
+    if not (agents.is_file() and AUTOMATION_MARKER in agents.read_text()):
         findings.append("AGENTS.md: does not record Seer and the native Cursor Sentry trigger as off "
-                        "(add `<!-- agent-kit:automation v1 seer:off cursor-sentry:off -->`)")
+                        f"(add `{AUTOMATION_MARKER}`)")
     sources = [repo / ".cursor/environment.json", *sorted(repo.glob(".github/workflows/*.y*ml"))]
     for path in sources:
         if path.is_file():
             text = path.read_text(errors="replace")
             rel = path.relative_to(repo)
-            findings += [f"{rel}: {f}" for f in scan_text(text) + scan_names(names_in(text))]
+            findings += [f"{rel}: {f}" for f in scan_text(text)]
     return findings
 
 
@@ -104,7 +107,7 @@ def main(argv=None):
     findings = check_repo(Path(args.repo).resolve())
     for path in args.env_file:
         text = Path(path).read_text(errors="replace")
-        findings += [f"{path}: {f}" for f in scan_text(text) + scan_names(names_in(text))]
+        findings += [f"{path}: {f}" for f in scan_text(text)]
     for path in args.env_names:
         names = [n.strip() for n in Path(path).read_text().splitlines() if n.strip()]
         findings += [f"{path}: {f}" for f in scan_names(names)]

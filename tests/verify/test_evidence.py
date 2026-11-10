@@ -44,6 +44,9 @@ class SchemaTest(unittest.TestCase):
     def test_bad_documents_are_rejected(self):
         cases = {
             "wrong schema version": lambda d: d.update(schema=2),
+            "schema true is not 1": lambda d: d.update(schema=True),
+            "assertion pass with wrong rows": lambda d: d["scenarios"][0]["data_assertions"][0].update(
+                observed=[{"name": "Grace"}]),
             "short head sha": lambda d: d.update(head_sha="abc"),
             "extra field": lambda d: d.update(verdict="trust me"),
             "missing env": lambda d: d.pop("env"),

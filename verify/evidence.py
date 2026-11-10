@@ -33,7 +33,7 @@ def _validate(value, schema, root, path, errors):
         if not any(not _collect(value, s, root, path) for s in schema["anyOf"]):
             errors.append(f"{path}: matches none of the allowed shapes")
         return
-    if "const" in schema and value != schema["const"]:
+    if "const" in schema and (value != schema["const"] or type(value) is not type(schema["const"])):
         errors.append(f"{path}: must be {schema['const']!r}")
     if "enum" in schema and value not in schema["enum"]:
         errors.append(f"{path}: must be one of {schema['enum']}")
@@ -105,6 +105,8 @@ def errors(doc, artifacts_dir=None):
     if found:
         return found
     for s in doc["scenarios"]:
+        if any(a["pass"] != (a["observed"] == a["expected"]) for a in s["data_assertions"]):
+            found.append(f"scenario {s['id']}: an assertion's pass disagrees with its observed rows")
         if s["result"] != scenario_result(s["ui_result"], s["data_assertions"]):
             found.append(f"scenario {s['id']}: result disagrees with its UI and data assertions")
         if s["trace"] and s["trace"] not in {a["name"] for a in doc["artifacts"]}:

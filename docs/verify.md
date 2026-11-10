@@ -6,8 +6,9 @@ The kit's reusable workflow [`verify.yml`](../.github/workflows/verify.yml) runs
 
 | Job | Holds | Runs |
 |---|---|---|
-| `run` | read-only token, no secrets | kit code; the candidate app inside its own container; base journeys; PR regression specs inside the Playwright container |
-| `attest` | `id-token: write`, `attestations: write` | kit code only: checks the evidence against the schema, this run and the trace hashes, then attests it |
+| `build` | read-only token, no secrets | the policy's `app.build` on head (and on base when the PR adds regression specs); hands over only the images |
+| `run` | read-only token, no secrets | kit code; the candidate app inside its own container; base journeys; PR regression specs inside the Playwright container; publishes the evidence hash as a job output |
+| `attest` | `id-token: write`, `attestations: write` | kit code only: checks the evidence against the `run` job's hash, the schema, this run and the trace hashes, then attests it |
 
 - Policy, journeys and seed always come from the **base** commit (INV-3). A PR that edits them changes nothing until it merges.
 - Data assertions are run by the kit's observer (`verify/observe.py`) with a read-only connection straight to the database. Candidate code never answers for its own data.
@@ -23,7 +24,7 @@ app:
   db: {image: postgres:16, seed: .agent-kit/seed/seed.sql}
 ```
 
-- `build`: a shell command, run in the checked-out tree. In CI it must produce a local image tagged `app`. It runs once for head, and once for base only when the PR adds regression specs.
+- `build`: a shell command, run in the checked-out tree in the `build` job. In CI it must produce a local image tagged `app`. It runs once for head, and once for base only when the PR adds regression specs.
 - `start.port`: the app must listen on this port on `127.0.0.1`.
 - `start.health`: a path that returns HTTP 200 once the app is ready (default `/`). The kit waits up to 60 s.
 - `start.cmd`: optional, used only by local host-mode reruns (below). CI ignores it.
@@ -70,7 +71,7 @@ test('rename the profile', async ({ page }) => {
 
 ## Rerunning locally
 
-`verify/local_run.py` is the same code the `run` job runs. Locally, use host mode when Docker is not available: the app starts from `app.start.cmd` and regression specs run on your machine. Host-mode evidence is never attested, so the gate never accepts it.
+`verify/local_run.py` is the same code the `build` and `run` jobs run (`--phase build` and `--phase observe`; the default `--phase all` does both). Locally, use host mode when Docker is not available: the app starts from `app.start.cmd` and regression specs run on your machine. Host-mode evidence is never attested, so the gate never accepts it.
 
 ```bash
 # all journeys plus the PR's regression specs

@@ -1,4 +1,4 @@
-"""Run the verify flow for one PR: what the `run` job of verify.yml does, minus attestation.
+"""Run the verify flow for one PR: what the `build` and `run` jobs of verify.yml do, minus attestation.
 
 Inputs come from the base commit only (policy, journeys, seed). The candidate (head)
 app runs under kit control; data assertions run from kit code straight against the DB.
@@ -7,8 +7,9 @@ untrusted evidence.
 
 Isolation:
 - container (default, used in CI): the app is the image `app.build` tags `app`, run
-  with `docker run`; regression specs run in the Playwright image. Candidate code
-  never runs on the host that writes evidence.json.
+  with `docker run`; regression specs run in the Playwright image. In CI the build
+  runs in its own job (`--phase build`), so candidate code never runs on the host
+  that writes evidence.json (`--phase observe`).
 - host (local reruns only): the app runs from `app.start.cmd` and regression specs
   run on the host. Evidence from host mode is never attested, so the gate never
   accepts it.
@@ -129,16 +130,20 @@ class App:
         self.app, self.src, self.side, self.isolation, self.work = app, src, side, isolation, work
         self.port = int(app["start"]["port"])
         self.health = app["start"].get("health", "/")
-        self.digest, self.proc = None, None
+        self.proc = None
         if isolation == "host" and not app["start"].get("cmd"):
             raise SystemExit("host isolation needs app.start.cmd in the policy")
 
+    @property
+    def image(self):
+        return f"agent-kit-{self.side}"
+
     def build(self):
+        """Runs candidate code (e.g. Dockerfile steps); in CI only in the `build` job."""
         if self.app.get("build"):
             sh(self.app["build"], shell=True, cwd=self.src)
         if self.isolation == "container":
-            sh(["docker", "tag", "app", f"agent-kit-{self.side}"])
-            self.digest = image_digest(f"agent-kit-{self.side}")
+            sh(["docker", "tag", "app", self.image])
 
     def start(self, db_url):
         env = {"PORT": str(self.port), "DATABASE_URL": db_url}
@@ -154,7 +159,7 @@ class App:
             if db_url.startswith("sqlite:"):
                 db_dir = str(Path(observe.sqlite_path(db_url)).parent)
                 cmd += ["-v", f"{db_dir}:{db_dir}"]
-            sh(cmd + [f"agent-kit-{self.side}"], stdout=subprocess.DEVNULL)
+            sh(cmd + [self.image], stdout=subprocess.DEVNULL)
         return self._wait_healthy()
 
     def _wait_healthy(self, timeout=60):
@@ -221,7 +226,7 @@ class Playwright:
         args = ["node", str(root / "node_modules/@playwright/test/cli.js"), "test",
                 "-c", str(spec_in.parent / config.name), "--output", f"{out_in}/results"]
         if in_container:
-            args = ["docker", "run", "--rm", "--network", "host",
+            args = ["docker", "run", "--rm", "--name", "agent-kit-regress", "--network", "host",
                     "-v", f"{self.root / 'node_modules'}:/kit/node_modules:ro",
                     "-v", f"{spec.parent}:{spec_in.parent}:ro", "-v", f"{out}:/out", "-w", "/kit",
                     PLAYWRIGHT_IMAGE, *args]
@@ -230,6 +235,9 @@ class Playwright:
             passed = subprocess.run(args, cwd=self.root, timeout=SPEC_TIMEOUT_S).returncode == 0
         except subprocess.TimeoutExpired:
             passed = False
+        finally:
+            if in_container:
+                subprocess.run(["docker", "rm", "-f", "agent-kit-regress"], capture_output=True)
         traces = sorted(out.rglob("trace.zip"))
         return passed, traces[0] if traces else None
 
@@ -296,17 +304,24 @@ def verify(args):
         p for p in git(repo, "diff", "--name-only", "--diff-filter=A", base_sha, head_sha, "--",
                        REGRESS_DIR).splitlines() if p.endswith(".spec.ts")]
 
-    pw = Playwright(work, args.install_browsers)
-    dbs = Databases(engine, app_cfg["db"], seed.decode(), work, args.isolation)
     head = App(app_cfg, head_dir, "head", args.isolation, work)
     base = App(app_cfg, base_dir, "base", args.isolation, work)
+    apps = [head, base] if new_specs else [head]
+    if args.phase == "observe":
+        sh(["docker", "load", "-i", args.images])
+    else:
+        for app in apps:
+            app.build()
+    if args.phase == "build":
+        sh(["docker", "save", "-o", args.images, *[app.image for app in apps]])
+        return 0
+
+    pw = Playwright(work, args.install_browsers)
+    dbs = Databases(engine, app_cfg["db"], seed.decode(), work, args.isolation)
     try:
-        head.build()
         scenarios = [run_scenario(j, head, dbs, pw, base_dir, out_dir) for j in journeys]
-        staged = [pw.stage("regress", Path(s).name, head_dir / s) for s in new_specs]
+        staged = [pw.stage("regress", Path(s).relative_to(REGRESS_DIR), head_dir / s) for s in new_specs]
         on_head = [run_regression(s, head, dbs, pw) for s in staged]
-        if staged:
-            base.build()
         on_base = [run_regression(s, base, dbs, pw) for s in staged]
     finally:
         head.stop()
@@ -321,7 +336,7 @@ def verify(args):
         "journeys_sha": git(repo, "rev-parse", f"{base_sha}:.agent-kit/journeys"),
         "run": {"id": args.run_id, "attempt": args.run_attempt,
                 "workflow_ref": args.workflow_ref or f"{KIT_REPO}/.github/workflows/verify.yml@{kit_ref}"},
-        "env": {"runner_image": runner_image(), "app_image_digest": head.digest,
+        "env": {"runner_image": runner_image(), "app_image_digest": image_digest(head.image) if args.isolation == "container" else None,
                 "db_image_digest": dbs.digest, "seed_hash": "sha256:" + evidence.sha256_bytes(seed)},
         "scenarios": scenarios,
         "regression": [evidence.regression_entry(s, b, h) for s, b, h in zip(new_specs, on_base, on_head)],
@@ -354,8 +369,14 @@ def main(argv=None):
     p.add_argument("--workflow-ref", help="default: yudduy/agent-kit/.github/workflows/verify.yml@<kit-ref>")
     p.add_argument("--scenario", action="append", help="run only this journey id (repeatable)")
     p.add_argument("--isolation", choices=("container", "host"), default="container")
+    p.add_argument("--phase", choices=("all", "build", "observe"), default="all",
+                   help="CI splits the run: `build` saves the candidate images to --images, `observe` loads them")
+    p.add_argument("--images", help="image archive written by --phase build and read by --phase observe")
     p.add_argument("--install-browsers", action="store_true", help="install Chromium and its system deps (CI)")
-    return verify(p.parse_args(argv))
+    args = p.parse_args(argv)
+    if args.phase != "all" and (args.isolation != "container" or not args.images):
+        p.error("--phase build/observe needs --isolation container and --images")
+    return verify(args)
 
 
 if __name__ == "__main__":

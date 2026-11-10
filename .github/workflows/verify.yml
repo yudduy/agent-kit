@@ -2,8 +2,10 @@
 # Callers pin it by full commit SHA from a `pull_request` workflow; see
 # templates/repo/.github/workflows/agent-verify.yml.
 #
-# Job `run` builds and drives the candidate with a read-only token and no secrets.
+# Job `build` runs candidate code (the image build) and hands over only the images.
+# Job `run` runs kit code only: it drives the candidate containers and reads the DB.
 # Job `attest` never touches PR code; it alone holds id-token and attestations write.
+# No job has secrets; `build` and `run` have a read-only token.
 name: agent-kit verify
 
 on:
@@ -12,9 +14,9 @@ on:
 permissions: {}
 
 jobs:
-  run:
+  build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
@@ -32,13 +34,61 @@ jobs:
           path: kit
           persist-credentials: false
 
-      - name: Fetch the repo history (base and head are exported by the kit, not built here)
+      - name: Fetch the repo history (the kit exports base and head from it)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           path: repo
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Build the candidate images (and base, when the PR adds regression specs)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: >-
+          python3 kit/verify/local_run.py --phase build --images "$RUNNER_TEMP/images.tar"
+          --repo repo --base "$BASE_SHA" --head "$HEAD_SHA"
+          --out "$RUNNER_TEMP/unused" --work "$RUNNER_TEMP/agent-kit"
+
+      - name: Upload the images
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-kit-images
+          path: ${{ runner.temp }}/images.tar
+          if-no-files-found: error
+          retention-days: 1
+
+  run:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      evidence_sha256: ${{ steps.hash.outputs.sha256 }}
+    steps:
+      - name: Check out the kit at the pinned commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: kit
+          persist-credentials: false
+
+      - name: Fetch the repo history (the kit exports base and head from it)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: repo
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download the images
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-kit-images
+          path: ${{ runner.temp }}/images
 
       - name: Run base journeys, data assertions and regression specs
         env:
@@ -48,13 +98,18 @@ jobs:
           KIT_SHA: ${{ job.workflow_sha }}
           KIT_WORKFLOW_REF: ${{ job.workflow_ref }}
         run: >-
-          python3 kit/verify/local_run.py
+          python3 kit/verify/local_run.py --phase observe --images "$RUNNER_TEMP/images/images.tar"
           --repo repo --base "$BASE_SHA" --head "$HEAD_SHA"
           --out "$RUNNER_TEMP/evidence" --work "$RUNNER_TEMP/agent-kit"
           --repo-name "$GITHUB_REPOSITORY" --pr "$PR_NUMBER"
           --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT"
           --kit-ref "$KIT_SHA" --workflow-ref "$KIT_WORKFLOW_REF"
           --isolation container --install-browsers
+
+      - name: Record the evidence hash for the attest job
+        id: hash
+        if: always()
+        run: echo "sha256=$(sha256sum "$RUNNER_TEMP/evidence/evidence.json" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Upload evidence and traces
         if: always()
@@ -89,14 +144,16 @@ jobs:
           name: agent-kit-evidence
           path: evidence
 
-      - name: Validate evidence against the schema, this run and the artifact hashes
+      - name: Validate evidence against the run job's hash, the schema, this run and the artifact hashes
         env:
+          EVIDENCE_SHA256: ${{ needs.run.outputs.evidence_sha256 }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           KIT_SHA: ${{ job.workflow_sha }}
           KIT_WORKFLOW_REF: ${{ job.workflow_ref }}
         run: >-
+          echo "$EVIDENCE_SHA256  evidence/evidence.json" | sha256sum --check --strict &&
           python3 kit/verify/evidence.py evidence/evidence.json --artifacts-dir evidence
           --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER" --head-sha "$HEAD_SHA" --base-sha "$BASE_SHA"
           --kit-ref "$KIT_SHA" --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT"

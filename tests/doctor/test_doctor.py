@@ -58,8 +58,9 @@ class Doctor(unittest.TestCase):
     def test_planted_prod_credentials_are_flagged(self):
         with tempfile.TemporaryDirectory() as tmp:
             clean_repo(tmp)
-            write(tmp, ".cursor/environment.json", json.dumps({"env": {"DATABASE_URL": PROD_DB,
-                                                                       "SUPABASE_SERVICE_ROLE_KEY": "x"}}))
+            write(tmp, ".cursor/environment.json", json.dumps({"env": {
+                "DATABASE_URL": PROD_DB, "SUPABASE_SERVICE_ROLE_KEY": "x", "VERCEL_ENV": "production",
+                "REPLICA_URL": "postgresql://u@[2001:db8::2]:5432/app"}}))
             write(tmp, ".github/workflows/ci.yml",
                   f"env:\n  STRIPE_KEY: {STRIPE_LIVE}\n  DB: ${{{{ secrets.PROD_DATABASE_URL }}}}\n"
                   "  VERCEL_ENV: production\n")
@@ -70,6 +71,8 @@ class Doctor(unittest.TestCase):
             for expected in [
                 ".cursor/environment.json: database URL with a remote host: db.abcdefghijklmnopqrst.supabase.co",
                 ".cursor/environment.json: prod-looking secret name: SUPABASE_SERVICE_ROLE_KEY",
+                ".cursor/environment.json: Vercel production binding",
+                ".cursor/environment.json: database URL with a remote host: 2001:db8::2",
                 ".github/workflows/ci.yml: Stripe live secret key",
                 ".github/workflows/ci.yml: prod-looking secret name: PROD_DATABASE_URL",
                 ".github/workflows/ci.yml: Vercel production binding",
@@ -85,7 +88,7 @@ class Doctor(unittest.TestCase):
     def test_missing_kit_files_and_unpinned_caller_are_flagged(self):
         with tempfile.TemporaryDirectory() as tmp:
             write(tmp, ".github/workflows/agent-verify.yml",
-                  "jobs:\n  verify:\n    uses: yudduy/agent-kit/.github/workflows/verify.yml@v1\n")
+                  'jobs:\n  verify:\n    uses: "yudduy/agent-kit/.github/workflows/verify.yml@v1"\n')
             code, out = run(tmp)
             self.assertEqual(code, 1)
             for expected in [".agent-kit/policy.yml: missing kit file", "CODEOWNERS: missing",
