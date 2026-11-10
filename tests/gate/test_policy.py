@@ -17,6 +17,7 @@ def with_line(old, new):
 class PolicyTest(unittest.TestCase):
     def test_record_example_is_valid(self):
         example = RECORD.read_text().split("### C1 Policy file v1\n```yaml\n")[1].split("```")[0]
+        example = example.replace('required_checks: ["ci / test"]', "required_checks: [{name: test, app: github-actions}]")  # Drift 6-7
         policy = parse(example.replace("<40-hex>", "a" * 40))
         self.assertEqual(policy["classes"]["billing-ui"], {"paths": ["src/billing/**"], "floor": "payments"})
         self.assertEqual(policy["journeys"][0]["data_assertions"][0]["expect"], [{"name": "Ada"}])
@@ -48,6 +49,11 @@ class PolicyTest(unittest.TestCase):
         for caps in ("{runs_per_repo: 2}", "{max_attempts: 3}", "{daily_usd: -1}"):
             with self.subTest(caps), self.assertRaises(PolicyError):
                 parse(POLICY + f"caps: {caps}\n")
+
+    def test_required_checks_name_their_app(self):
+        for checks in ("[test]", "[{name: test}]", "[{name: test, app: Bad_App}]"):
+            with self.subTest(checks), self.assertRaises(PolicyError):
+                parse(with_line("required_checks: [{name: test, app: github-actions}]", f"required_checks: {checks}"))
 
     def test_shape_errors_fail(self):
         for text in (with_line("version: 1", "version: true"),

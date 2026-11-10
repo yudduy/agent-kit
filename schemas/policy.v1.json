@@ -60,7 +60,19 @@
       }
     },
     "auto_merge": {"type": "array", "uniqueItems": true, "items": {"enum": ["docs", "kit-bump"]}},
-    "required_checks": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "required_checks": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "app"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "app": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"}
+        }
+      }
+    },
     "journeys": {
       "type": "array",
       "items": {

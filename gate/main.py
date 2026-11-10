@@ -30,6 +30,7 @@ EVIDENCE_ARTIFACT = "agent-kit-evidence"  # Actions artifact holding evidence.js
 MAX_ARTIFACT_BYTES = 200_000_000  # shortcut: larger artifacts count as missing evidence; raise if real traces exceed it
 LOG_BRANCH = "decisions-log"
 CHECK_NAME = "agent-gate"
+KIT_USES = re.compile(r"""uses:\s*['"]?yudduy/agent-kit/[^@\s'"]+@([^\s'"#]+)""")
 REPO_NAME = re.compile(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+$")
 
 
@@ -67,7 +68,7 @@ def load_config(control, control_repo):
 
 
 def gate_pr(client, repo, pr, paused, app_id, log):
-    """Decide one PR. A changed decision is logged first, then posted; then an auto-class pass is merged."""
+    """Decide one PR. A changed decision is logged first, then posted; then a passing PR is merged."""
     facts, previous = gather(client, repo, pr, paused, app_id)
     record = decide(facts)
     if record != previous:
@@ -80,7 +81,7 @@ def gate_pr(client, repo, pr, paused, app_id, log):
             "conclusion": record["conclusion"],
             "output": {"title": title, "summary": text},
         })
-    if record["conclusion"] == "success" and record["class"] in parse(facts.policy_text)["auto_merge"] and not pr["draft"]:
+    if record["conclusion"] == "success" and not pr["draft"]:  # D2: the gate merges every passing PR
         client.put(f"/repos/{repo}/pulls/{pr['number']}/merge", {"sha": record["head_sha"]})
 
 
@@ -98,17 +99,15 @@ def gather(client, repo, pr, paused, app_id):
     except NotFound:
         journeys_sha = None
 
-    runs, previous = {}, None
+    checks, previous = {}, None
     for check in sorted(client.pages(f"/repos/{repo}/commits/{head}/check-runs", "check_runs"), key=lambda c: c["id"]):
+        app = check.get("app") or {}
         if check["name"] == CHECK_NAME:
-            if app_id is not None and (check.get("app") or {}).get("id") == app_id:
+            if app_id is not None and app.get("id") == app_id:
                 previous = record_from_summary(check["output"]["summary"])
             continue
-        runs[check["name"]] = check["conclusion"] if check["status"] == "completed" else "pending"  # latest run per name
-    checks = {status["context"]: status["state"] for status in client.get(f"/repos/{repo}/commits/{head}/status")["statuses"]}
-    for name, state in runs.items():  # GitHub needs both a status and a check run of one name to pass
-        if checks.get(name, "success") == "success":
-            checks[name] = state
+        state = check["conclusion"] if check["status"] == "completed" else "pending"
+        checks.setdefault(check["name"], {})[app.get("slug")] = state  # latest run per name and app
 
     facts = Facts(
         repo=repo,
@@ -123,6 +122,7 @@ def gather(client, repo, pr, paused, app_id):
         policy_sha=policy_sha,
         journeys_sha=journeys_sha,
         paused=paused,
+        kit_pins=_kit_pins(client, repo, base_sha),
     )
     _attach_evidence(client, facts, _kit_ref(policy_text))
     return facts, previous
@@ -145,6 +145,21 @@ def _attach_evidence(client, facts, kit_ref):
             if facts.evidence is not None and kit_ref:
                 facts.attestation = client.verify_attestation(facts.repo, facts.evidence, kit_ref)
             return
+
+
+def _kit_pins(client, repo, base_sha):
+    """Refs pinned by each base workflow that calls the kit (D1)."""
+    try:
+        listing = client.get(f"/repos/{repo}/contents/.github/workflows?ref={base_sha}")
+    except NotFound:
+        return {}
+    pins = {}
+    for entry in listing:
+        if entry["type"] == "file" and entry["name"].endswith((".yml", ".yaml")):
+            refs = KIT_USES.findall(_file(client, repo, entry["path"], base_sha)[0])
+            if refs:
+                pins[entry["path"]] = refs
+    return pins
 
 
 def _kit_ref(policy_text):

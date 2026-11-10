@@ -1,7 +1,7 @@
 import unittest
 
 from gate.decide import decide, record_from_summary, summary
-from tests.gate.helpers import BASE, HEAD, POLICY, change, facts, review
+from tests.gate.helpers import BASE, HEAD, KIT, POLICY, change, facts, review
 
 
 def gate(f):
@@ -114,10 +114,21 @@ class DecideTest(unittest.TestCase):
     def test_required_checks_must_be_success(self):
         for state in ("skipped", "neutral", "pending", "cancelled", "timed_out", "failure"):
             with self.subTest(state):
-                record = gate(facts(checks={"test": state}))
+                record = gate(facts(checks={"test": {"github-actions": state}}))
                 self.assertBlocked(record, f"required check 'test' is {state}")
                 self.assertEqual(record["required_checks"], {"test": state})
         self.assertBlocked(gate(facts(checks={})), "required check 'test' is missing")
+
+    def test_required_check_from_another_app_counts_as_missing(self):
+        record = gate(facts(checks={"test": {"evil-app": "success"}}))
+        self.assertEqual(record["required_checks"], {"test": "missing"})
+        self.assertBlocked(record, "required check 'test' is missing")
+
+    def test_kit_workflow_pins_must_equal_policy_kit_ref_d1(self):
+        for pins in ({".github/workflows/verify.yml": ["9" * 40]}, {".github/workflows/verify.yml": ["main"]},
+                     {".github/workflows/verify.yml": [KIT], ".github/workflows/other.yml": ["9" * 40]}):
+            with self.subTest(pins):
+                self.assertBlocked(gate(facts(kit_pins=pins)), "does not equal the policy kit_ref")
 
     def test_unsupported_evidence_schema_fails_closed(self):
         for schema in (-1, 0, 2, "1", None):
@@ -166,7 +177,7 @@ class DecideTest(unittest.TestCase):
         record = gate(facts(files=[change("src/app.py")]))
         self.assertEqual((record["conclusion"], record["shadow"]), ("failure", "would_merge"))
         self.assertIn("would merge it", summary(record)[1])
-        record = gate(facts(files=[change("src/app.py")], checks={"test": "failure"}))
+        record = gate(facts(files=[change("src/app.py")], checks={"test": {"github-actions": "failure"}}))
         self.assertEqual(record["shadow"], "would_not")
 
     def test_record_has_c5_fields(self):

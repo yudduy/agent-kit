@@ -26,7 +26,7 @@ floor_extra:
   migrations: {{paths: ["db/migrations/**"]}}
   governance: {{paths: ["evals/**"]}}
 auto_merge: [docs, kit-bump]
-required_checks: [test]
+required_checks: [{{name: test, app: github-actions}}]
 journeys:
   - id: save-profile
     areas: ["src/profile/**"]
@@ -89,7 +89,8 @@ def facts(files=None, edit=None, tamper=None, **overrides):
         files=files if files is not None else [change("docs/guide.md")],
         commits=[{"author": {"login": "agent-bot[bot]"}, "committer": {"login": "web-flow"}}],
         reviews=[],
-        checks={"test": "success"},
+        checks={"test": {"github-actions": "success"}},
+        kit_pins={".github/workflows/verify.yml": [KIT]},
         policy_text=POLICY,
         policy_sha=POLICY_SHA,
         journeys_sha=JOURNEYS_SHA,

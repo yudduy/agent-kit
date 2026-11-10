@@ -21,13 +21,14 @@ class Facts:
     files: list  # compare API files, base...head
     commits: list  # pulls/{n}/commits
     reviews: list  # pulls/{n}/reviews
-    checks: dict  # check name -> success|failure|pending|skipped|neutral|cancelled|timed_out|...
+    checks: dict  # check name -> {app slug -> latest state: success|failure|pending|skipped|neutral|...}
     policy_text: str | None  # .agent-kit/policy.yml at base_sha
     policy_sha: str | None  # its blob sha
     journeys_sha: str | None  # tree sha of .agent-kit/journeys at base_sha
     evidence: bytes | None = None  # evidence.json from the newest verify artifact for head
     artifact_files: dict = field(default_factory=dict)  # artifact member name -> sha256 hex
     attestation: dict | None = None  # set only when `gh attestation verify` passed; see main.verify_attestation
+    kit_pins: dict = field(default_factory=dict)  # base workflow path -> refs it pins in `uses: yudduy/agent-kit/...@ref`
     paused: bool = False
 
 
@@ -55,9 +56,12 @@ def decide(f):
         blocking.append(str(error))
     cls, hits = classify(f.files, policy)
 
-    required = {name: f.checks.get(name, "missing") for name in (policy or {}).get("required_checks", [])}
+    required = {c["name"]: f.checks.get(c["name"], {}).get(c["app"], "missing") for c in (policy or {}).get("required_checks", [])}
     blocking += [f"required check {name!r} is {state}" for name, state in required.items() if state != "success"]
 
+    if policy is not None:  # D1: every kit caller on base runs the kit the policy pins
+        blocking += [f"kit workflow {path} pins {ref}, which does not equal the policy kit_ref"
+                     for path, refs in sorted(f.kit_pins.items()) for ref in refs if ref != policy["kit_ref"]]
     if policy is None:
         evidence = "mismatch"
         blocking.append("evidence cannot be checked without a valid base policy")

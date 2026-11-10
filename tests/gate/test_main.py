@@ -54,7 +54,7 @@ class TickTest(unittest.TestCase):
         fixture = Fixture(FIXTURE)
         tick(fixture)
         contents = [path for path in fixture.reads if f"/repos/{REPO}/contents/" in path]
-        self.assertTrue(contents)
+        self.assertIn(f"/repos/{REPO}/contents/.github/workflows/verify.yml?ref={BASE}", contents)
         self.assertTrue(all(path.endswith(f"?ref={BASE}") for path in contents), contents)
 
     def test_unchanged_decision_is_not_reposted_but_merge_is_retried(self):
@@ -68,9 +68,24 @@ class TickTest(unittest.TestCase):
         fixture.writes.clear()
         self.assertEqual(tick(fixture)[1], [("PUT", f"/repos/{REPO}/pulls/12/merge", {"sha": HEAD})])
 
-    def test_failing_status_is_not_hidden_by_a_passing_check_run(self):
+    def test_human_approved_pr_is_merged_by_the_gate_d2(self):
         fixture = Fixture(FIXTURE)
-        fixture.api[f"/repos/{REPO}/commits/{HEAD}/status"]["statuses"] = [{"context": "test", "state": "failure"}]
+        fixture.api[f"/repos/{REPO}/pulls/13/reviews"] = [
+            {"user": {"login": "alice", "type": "User"}, "state": "APPROVED", "commit_id": "9" * 40, "submitted_at": "2026-11-10T10:00:00Z"}]
+        _, writes = tick(fixture)
+        self.assertIn(("PUT", f"/repos/{REPO}/pulls/13/merge", {"sha": "9" * 40}), writes)
+
+    def test_required_check_from_another_app_blocks_merge(self):
+        fixture = Fixture(FIXTURE)
+        fixture.api[f"/repos/{REPO}/commits/{HEAD}/check-runs"]["check_runs"][0]["app"] = {"id": 1, "slug": "evil-app"}
+        _, writes = tick(fixture)
+        self.assertNotIn(("PUT", f"/repos/{REPO}/pulls/12/merge"), kinds(writes))
+
+    def test_base_kit_pin_mismatch_blocks_merge_d1(self):
+        fixture = Fixture(FIXTURE)
+        path = f"/repos/{REPO}/contents/.github/workflows/verify.yml?ref={BASE}"
+        text = base64.b64decode(fixture.api[path]["content"]).decode().replace("a" * 40, "9" * 40)
+        fixture.api[path]["content"] = base64.b64encode(text.encode()).decode()
         _, writes = tick(fixture)
         self.assertNotIn(("PUT", f"/repos/{REPO}/pulls/12/merge"), kinds(writes))
 

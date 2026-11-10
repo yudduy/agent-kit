@@ -1,6 +1,6 @@
 # agent-gate: setup and operation
 
-The gate decides every open pull request in every onboarded repo and posts the `agent-gate` check (contract C5 in the [design record](design/2026-11-10-agent-kit.md)). It merges a pull request only when the check passes and the change class is on the repo's auto list (phase 1: `docs`, `kit-bump`). Every other class needs an approval from a listed human on the exact head commit; the gate then turns green and a human merges.
+The gate decides every open pull request in every onboarded repo and posts the `agent-gate` check (contract C5 in the [design record](design/2026-11-10-agent-kit.md)). When the check passes, the gate merges the pull request (D2). A change passes without a human only if its class is on the repo's auto list (phase 1: `docs`, `kit-bump`); every other class needs an approval from a listed human, not its author or a committer, on the exact head commit.
 
 It runs as a scheduled workflow in private `yudduy/agent-control`, every 5 minutes, and reads everything through the GitHub API. It never checks out, builds or runs pull request code (INV-2). Policy and journeys come from the default branch tip, never the pull request (INV-3); a pull request into any other branch fails.
 
@@ -17,7 +17,6 @@ Run these as an owner of the org or account that owns the repos. `APP_ID` is the
    | Pull requests | Read | list PRs, reviews, commits |
    | Actions | Read | find the verify run and download its evidence artifact |
    | Attestations | Read | `gh attestation verify` on private repos |
-   | Commit statuses | Read | required checks that report as statuses |
    | Metadata | Read | required by GitHub |
 
    Install it on the onboarded repos only ("Only select repositories"). Generate a private key.
@@ -50,7 +49,7 @@ Run these as an owner of the org or account that owns the repos. `APP_ID` is the
 
 4. **Install the workflow**: copy [`templates/agent-control/.github/workflows/gate.yml`](../templates/agent-control/.github/workflows/gate.yml) to agent-control and set `AGENT_KIT_REF` to the full 40-hex agent-kit commit to run. Change it only by pull request.
 
-5. **Per onboarded repo, after its onboarding PR has merged** (the gate fails every PR until the base branch has a valid `.agent-kit/policy.yml`), add the ruleset from [`gate/ruleset.json`](../gate/ruleset.json): `agent-gate` required and bound to the App, strict up-to-date branches, no bypass actors, admins included (INV-1):
+5. **Per onboarded repo, apply the ruleset only after its onboarding PR has merged.** Until the default branch has a valid `.agent-kit/policy.yml` the gate fails every PR, so a ruleset applied earlier blocks the onboarding PR itself. Then add the ruleset from [`gate/ruleset.json`](../gate/ruleset.json): `agent-gate` required and bound to the App, strict up-to-date branches, no bypass actors, admins included (INV-1):
 
    ```sh
    jq --argjson id "$APP_ID" '.rules[0].parameters.required_status_checks[0].integration_id = $id' gate/ruleset.json \
@@ -72,9 +71,11 @@ The gate reads it from agent-control `main` through the API. Any other shape sto
 
 ## What the gate reads and writes
 
-- Reads, per open PR: the base branch tip, `compare/<base tip>...<head>` (paths and patches), `.agent-kit/policy.yml` and the `.agent-kit/journeys` tree sha at the base tip, check runs and statuses on head, reviews, PR commits, and the evidence artifact. A required check passes only if the latest check run and the commit status of that name (whichever exist) are both `success`.
+- Reads, per open PR: the base branch tip, `compare/<base tip>...<head>` (paths and patches), `.agent-kit/policy.yml` and the `.agent-kit/journeys` tree sha at the base tip, the kit callers in `.github/workflows/` at the base tip, check runs on head, reviews, PR commits, and the evidence artifact.
+- Required checks: each policy entry is `{name: <check run name>, app: <app slug>}`, for example `{name: test, app: github-actions}` (an Actions check run is named after its job). Only the latest check run with that name from that app counts; a run from any other app, or a commit status, counts as missing.
+- Kit pins (D1): every `uses: yudduy/agent-kit/...@<ref>` in the base branch's workflows must equal the policy's `kit_ref`; any other ref fails the gate.
 - Evidence: the newest non-expired artifact named `agent-kit-evidence` from a `pull_request` run on the head SHA. It holds `evidence.json` at its root plus every file listed in `artifacts`. The gate runs `gh attestation verify evidence.json --repo OWNER/REPO --signer-workflow yudduy/agent-kit/.github/workflows/verify.yml --signer-digest <base kit_ref> --deny-self-hosted-runners`, then checks the attested run id and every C2 field against base.
-- Writes, in this order: one JSON line appended to `decisions/<UTC date>.jsonl` on the `decisions-log` branch (with the workflow's own `GITHUB_TOKEN`), then the `agent-gate` check run on head, both only when the decision changed; then a merge with `sha=head` for a passing auto-class PR, retried each tick until it lands. If the log write fails, nothing is posted or merged for that PR.
+- Writes, in this order: one JSON line appended to `decisions/<UTC date>.jsonl` on the `decisions-log` branch (with the workflow's own `GITHUB_TOKEN`), then the `agent-gate` check run on head, both only when the decision changed; then a merge with `sha=head` for every passing PR (auto class or human-approved), retried each tick until it lands. If the log write fails, nothing is posted or merged for that PR.
 - The App installation token is minted per repo and scoped to that repo. The App JWT is signed RS256 by the `openssl` CLI (the Python standard library has no RSA; `openssl` and `gh` ship on GitHub-hosted runners).
 
 ## Emergency pause
