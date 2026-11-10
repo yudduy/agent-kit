@@ -8,7 +8,7 @@ CLAIMED, RUNNING, PR_OPEN = "agent:claimed", "agent:running", "agent:pr-open"
 TRIAGED, IGNORED, NEEDS_HUMAN, PAID_OK = "agent:triaged", "agent:ignored", "agent:needs-human", "agent:paid-ok"
 DONE = {PR_OPEN, TRIAGED, IGNORED, NEEDS_HUMAN}
 
-_MARKER = re.compile(r"<!-- agent-kit:(intake|decision|claim|run|heartbeat) v1 (.*?) -->", re.S)
+_MARKER = re.compile(r"<!-- agent-kit:(intake|decision|claim|run|heartbeat|reopen) v1 (.*?) -->", re.S)
 
 
 def fingerprint(source, src_id):

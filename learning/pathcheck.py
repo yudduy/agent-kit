@@ -4,8 +4,9 @@
   pathcheck.py --files files.jsonl   # one GitHub "list pull request files" object per line, or a JSON array
 
 Fails when the PR touches policy, the gate, verification, CI, graders or thresholds, deletes or renames a file,
-edits an existing case, or changes anything that is not a test or eval case. Appending to a case list
-(a JSONL line, or a JSON array entry whose previous line gains a comma) counts as adding a case.
+edits an existing case, or changes anything that is not a test or eval case. An existing file may change only if it
+is a `.jsonl` case list that only gains lines. Any edit to an existing test file fails: one added `return` can
+switch a test off.
 """
 import argparse
 import json
@@ -19,11 +20,8 @@ CASES = ["tests/*", "test/*", "*/tests/*", "*/__tests__/*", "evals/*", "*/evals/
          "*.spec.ts", "*.test.ts", "*.spec.js", "*.test.js", "*test_*.py", "*_test.py", "*_test.go"]
 
 
-def only_appends(patch):
-    lines = (patch or "").splitlines()
-    removed = [l[1:].rstrip() for l in lines if l.startswith("-") and not l.startswith("---")]
-    added = {l[1:].rstrip() for l in lines if l.startswith("+") and not l.startswith("+++")}
-    return bool(patch) and all(r + "," in added for r in removed)
+def only_additions(patch):
+    return bool(patch) and not any(l.startswith("-") and not l.startswith("---") for l in patch.splitlines())
 
 
 def problems(files):
@@ -36,7 +34,7 @@ def problems(files):
             out.append("%s: a learning PR may only add test or eval cases" % path)
         elif status == "added":
             continue
-        elif status != "modified" or not only_appends(f.get("patch")):
+        elif status != "modified" or not path.endswith(".jsonl") or not only_additions(f.get("patch")):
             out.append("%s (%s): changes an existing case; only new cases are allowed" % (path, status))
     return out
 

@@ -78,13 +78,20 @@ def files(*entries):
 class PathCheck(unittest.TestCase):
     def test_adding_a_case_passes(self):
         self.assertEqual(pathcheck.problems(files(("tests/regress/fp-3f9a.spec.ts", "added", "+test('x')"),
-                                                  ("evals/cases.jsonl", "modified", "@@ -3,0 +4 @@\n+{\"id\": 4}"),
-                                                  ("evals/evals.json", "modified", "@@ -9,2 +9,3 @@\n-  }\n+  },\n+  {\"id\": 9}"))), [])
+                                                  ("evals/cases.jsonl", "modified", "@@ -3,0 +4 @@\n+{\"id\": 4}"))), [])
 
     def test_editing_an_existing_expectation_fails(self):
         found = pathcheck.problems(files(("evals/evals.json", "modified", "@@ -4 +4 @@\n-  \"expected\": \"pass\"\n+  \"expected\": \"fail\"")))
         self.assertEqual(len(found), 1)
         self.assertIn("existing case", found[0])
+
+    def test_a_comma_edit_that_overrides_an_expectation_fails(self):
+        patch = '@@ -4 +4,2 @@\n-  "expected": "pass"\n+  "expected": "pass",\n+  "expected": "fail"'
+        self.assertEqual(len(pathcheck.problems(files(("evals/evals.json", "modified", patch)))), 1)
+
+    def test_any_edit_to_an_existing_test_file_fails(self):
+        patch = "@@ -10,0 +11 @@\n+    return  # switches the test off"
+        self.assertEqual(len(pathcheck.problems(files(("tests/test_save.py", "modified", patch)))), 1)
 
     def test_protected_and_non_case_files_fail(self):
         found = pathcheck.problems(files((".agent-kit/policy.yml", "modified", "-a\n+b"), ("evals/grade.py", "added", "+x"),

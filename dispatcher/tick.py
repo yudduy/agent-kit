@@ -47,7 +47,7 @@ class Tick:
             if issue["state"] == "open" and labels_of(issue) & {m.CLAIMED, m.RUNNING}:
                 self.active[repo] = self.active.get(repo, 0) + 1
             if ts(issue["updated_at"]) >= today:
-                claims_today = [c for c in self.claims(issue) if ts(c["created_at"]) >= today]
+                claims_today = [c for c in self.claims(issue, since_reopen=False) if ts(c["created_at"]) >= today]
                 self.spent[repo] = self.spent.get(repo, 0) + self.cost * len(claims_today)
         self.stale = self.heartbeat_stale()
         self.policies = {}
@@ -58,6 +58,7 @@ class Tick:
     # Intake (C3): one issue per fingerprint, reopened when a closed error comes back.
     def intake(self):
         by_fp = {}
+        self.issues = [i for i in self.issues if self.mine(i)]  # an intake marker counts only in an issue the dispatcher opened
         for issue in self.issues:
             fields = m.parse("intake", issue.get("body"))
             if fields:
@@ -87,24 +88,39 @@ class Tick:
         return self.gh.create_issue(self.ctl, title[:250], body, [m.INCIDENT, m.NEEDS_DECISION])
 
     def reopen(self, issue, row):
-        self.gh.update_issue(self.ctl, issue["number"], state="open")
+        """Reopen with a fresh decision and attempt count, unless a run is still active: then keep following it (INV-8)."""
+        number = issue["number"]
+        self.gh.update_issue(self.ctl, number, state="open")
+        issue["state"] = "open"
+        if labels_of(issue) & {m.CLAIMED, m.RUNNING}:
+            self.gh.comment(self.ctl, number, "This error came back (last seen %s) while its run is still active." % row["last_seen"])
+            return
         for label in (m.PR_OPEN, m.TRIAGED, m.NEEDS_HUMAN, m.DECIDED):
-            self.gh.remove_label(self.ctl, issue["number"], label)
-        self.gh.add_labels(self.ctl, issue["number"], [m.NEEDS_DECISION])
-        self.gh.comment(self.ctl, issue["number"], "This error came back after the issue was closed (last seen %s)." % row["last_seen"])
-        issue.update(state="open", labels=[{"name": m.INCIDENT}, {"name": m.NEEDS_DECISION}])
+            self.gh.remove_label(self.ctl, number, label)
+        self.gh.add_labels(self.ctl, number, [m.NEEDS_DECISION])
+        self.gh.comment(self.ctl, number, m.json_marker("reopen", {"last_seen": row["last_seen"]})
+                        + "\nThis error came back after the issue was closed (last seen %s)." % row["last_seen"])
+        issue["labels"] = [{"name": m.INCIDENT}, {"name": m.NEEDS_DECISION}]
 
-    # Comment-derived state.
-    def comments(self, issue):
+    # Comment-derived state. Claim, run and reopen markers count only from the dispatcher's own login.
+    def mine(self, item):
+        return (item.get("user") or {}).get("login") == self.config["dispatcher_login"]
+
+    def comments(self, issue, since_reopen=True):
         if issue["number"] not in self._comments:
             self._comments[issue["number"]] = self.gh.comments(self.ctl, issue["number"])
-        return self._comments[issue["number"]]
+        everything = self._comments[issue["number"]]
+        if not since_reopen:
+            return everything
+        reopens = [i for i, c in enumerate(everything) if self.mine(c) and m.parse("reopen", c["body"])]
+        return everything[reopens[-1] + 1:] if reopens else everything
 
-    def claims(self, issue):
-        return [{**claim, "created_at": c["created_at"]} for c in self.comments(issue) if (claim := m.parse("claim", c["body"]))]
+    def claims(self, issue, since_reopen=True):
+        return [{**claim, "created_at": c["created_at"]} for c in self.comments(issue, since_reopen)
+                if self.mine(c) and (claim := m.parse("claim", c["body"]))]
 
     def runs(self, issue):
-        return {r["attempt"]: r["cursor_id"] for r in (m.parse("run", c["body"]) for c in self.comments(issue)) if r}
+        return {r["attempt"]: r["cursor_id"] for r in (m.parse("run", c["body"]) for c in self.comments(issue) if self.mine(c)) if r}
 
     def repo_of(self, issue):
         return (m.parse("intake", issue.get("body")) or {}).get("repo")
@@ -162,15 +178,18 @@ class Tick:
         self.start(issue, repo, prompt, model)
 
     def paid_ok(self, issue, approvers):
-        return any(e.get("event") == "labeled" and e["label"]["name"] == m.PAID_OK and e["actor"]["login"] in approvers
-                   and e["actor"].get("type") == "User" for e in self.gh.events(self.ctl, issue["number"]))
+        """`agent:paid-ok` is on the issue now, and an approver (a user, not a bot) applied it last."""
+        if m.PAID_OK not in labels_of(issue):
+            return False
+        applied = [e for e in self.gh.events(self.ctl, issue["number"]) if e.get("event") == "labeled" and e["label"]["name"] == m.PAID_OK]
+        return bool(applied) and applied[-1]["actor"]["login"] in approvers and applied[-1]["actor"].get("type") == "User"
 
     def start(self, issue, repo, prompt, model):
         attempt = self.new_id()
         number = len(self.claims(issue)) + 1
         claim = self.gh.comment(self.ctl, issue["number"], m.json_marker("claim", {"attempt": attempt, "at": self.now().isoformat()})
                                 + "\nAttempt %d claimed; starting a Cursor run." % number)
-        self.comments(issue).append(claim)
+        self._comments[issue["number"]].append(claim)
         self.gh.add_labels(self.ctl, issue["number"], [m.CLAIMED])
         self.active[repo] = self.active.get(repo, 0) + 1
         self.spent[repo] = self.spent.get(repo, 0) + self.cost
@@ -192,7 +211,7 @@ class Tick:
     def record(self, issue, attempt, agent):
         line = self.gh.comment(self.ctl, issue["number"], m.json_marker("run", {"attempt": attempt, "cursor_id": agent["id"]})
                                + "\nCursor run started: %s" % agent.get("url", agent["id"]))
-        self.comments(issue).append(line)
+        self._comments[issue["number"]].append(line)
         self.gh.add_labels(self.ctl, issue["number"], [m.RUNNING])
         self.gh.remove_label(self.ctl, issue["number"], m.CLAIMED)
 

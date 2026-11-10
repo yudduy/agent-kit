@@ -46,7 +46,7 @@ class FakeGitHub:
 
     def create_issue(self, repo, title, body, labels):
         number = len(self.issues_) + 1
-        issue = {"number": number, "title": title, "body": body, "state": "open", "closed_at": None,
+        issue = {"number": number, "title": title, "body": body, "state": "open", "closed_at": None, "user": {"login": self.login},
                  "labels": [{"name": l} for l in labels], "created_at": self.clock.iso(), "updated_at": self.clock.iso()}
         self.issues_[number] = issue
         return copy.deepcopy(issue)

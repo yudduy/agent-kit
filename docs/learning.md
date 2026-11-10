@@ -36,4 +36,5 @@ green (INV-13).
 `learning/pathcheck.py` runs from the pinned kit in each repo's `agent-learning-check.yml` on PRs labelled
 `agent:learning` or carrying the `agent-kit:learning v1` marker. It reads the PR's file list from the API and fails
 if anything other than an added test or eval case changes: policy, journeys, gate, verify, CI, graders and
-thresholds fail on any touch; existing case files may only gain lines.
+thresholds fail on any touch. An existing file may change only if it is a `.jsonl` case list that only gains
+lines; any edit to an existing test file fails, because one added `return` can switch a test off.

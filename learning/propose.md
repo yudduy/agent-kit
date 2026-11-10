@@ -28,7 +28,8 @@ check before you decide anything.
 
 ## What you may change (INV-12)
 
-- You may add new test or eval cases. Appending to a case list counts as adding.
+- You may add new test or eval cases: a new file, or new lines at the end of a `.jsonl` case list. Any edit to
+  an existing test file or JSON case file fails the check.
 - You must not edit existing expectations, graders, checker thresholds, `.agent-kit/policy.yml`, journeys, the gate,
   the verify workflow or its pass criteria, CI workflows, or CODEOWNERS. If the right fix needs one of these, do not
   make it: describe the exact change under a `Needs a human` heading in the PR body.

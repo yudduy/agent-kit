@@ -13,7 +13,7 @@ POLICY = "version: 1\napprovers: [yudduy]\ncaps: {runs_per_repo: 5, daily_usd: 2
 
 
 def config(repos=("yudduy/shop",), **caps):
-    return {"v": 1, "control_repo": CTL, "heartbeat_issue": 999, "deciders": ["yudduy-mini"], "escalate_to": "yudduy",
+    return {"v": 1, "control_repo": CTL, "dispatcher_login": "dispatcher", "heartbeat_issue": 999, "deciders": ["yudduy-mini"], "escalate_to": "yudduy",
             "repos": {r: {"branch": "main", "sentry": {"org": "acme", "project": r.split("/")[1]}} for r in repos},
             "caps": {"runs_per_repo": 1, "global_runs": 3, "daily_usd": 20, "max_attempts": 2, **caps},
             "run_cost_usd": 1, "models": {"default": "composer-2", "included": ["composer-2"]}}
@@ -183,10 +183,42 @@ class MacMini(unittest.TestCase):
         w.heartbeat()
         w.tick()
         w.gh.events_[1] = [{"event": "labeled", "label": {"name": m.PAID_OK}, "actor": {"login": "yudduy", "type": "User"}}]
+        w.gh.add_labels(CTL, 1, [m.PAID_OK])
         w.gh.comment(CTL, 1, m.decision_comment("fix", "claude-4-opus", "Fix it."), login="yudduy-mini")
         w.heartbeat()
         w.tick()
         self.assertEqual(next(iter(w.cursor_server.agents.values()))["body"]["model"], {"id": "claude-4-opus"})
+
+    def test_removed_paid_ok_label_no_longer_allows_a_paid_model(self):
+        w = World()
+        w.heartbeat()
+        w.tick()
+        w.gh.events_[1] = [{"event": "labeled", "label": {"name": m.PAID_OK}, "actor": {"login": "yudduy", "type": "User"}},
+                           {"event": "unlabeled", "label": {"name": m.PAID_OK}, "actor": {"login": "yudduy", "type": "User"}}]
+        w.gh.comment(CTL, 1, m.decision_comment("fix", "claude-4-opus", "Fix it."), login="yudduy-mini")
+        w.heartbeat()
+        w.tick()
+        self.assertEqual(next(iter(w.cursor_server.agents.values()))["body"]["model"], {"id": "composer-2"})
+
+    def test_forged_claims_from_another_login_are_ignored(self):
+        w = World()
+        w.heartbeat()
+        w.tick()
+        for attempt in ("x1", "x2"):
+            w.gh.comment(CTL, 1, m.json_marker("claim", {"attempt": attempt, "at": "now"}), login="mallory")
+        w.clock.advance(31)
+        w.tick()
+        self.assertEqual(w.cursor_server.creates, 1)
+        self.assertNotIn(m.NEEDS_HUMAN, w.gh.labels(1))
+
+    def test_issue_opened_by_someone_else_is_not_dispatched(self):
+        w = World()
+        w.rows = lambda repo, s: []
+        w.gh.login = "mallory"
+        w.gh.create_issue(CTL, "x", m.intake("a" * 16, "sentry", "1", "x", "yudduy/shop"), [m.INCIDENT])
+        w.gh.login = "dispatcher"
+        w.tick()
+        self.assertEqual(w.cursor_server.creates, 0)
 
     def test_ignore_decision_starts_nothing_even_when_stale(self):
         w = World()
@@ -211,13 +243,26 @@ class Paused(unittest.TestCase):
 
 
 class Reopen(unittest.TestCase):
-    def test_closed_error_that_comes_back_reopens_the_same_issue(self):
-        w = World()
+    def test_error_that_comes_back_after_a_pr_gets_a_fresh_run(self):
+        w = World(config(max_attempts=1))
+        w.tick()
+        w.cursor_server.run_status = "FINISHED"
         w.tick()
         w.gh.issues_[1].update(state="closed", closed_at="2026-11-10T03:02:00Z")
         w.tick()
         self.assertEqual(len(w.gh.issues_), 1)
         self.assertEqual(w.gh.issues_[1]["state"], "open")
+        self.assertEqual(w.cursor_server.creates, 2, "the earlier attempt does not count against the new one")
+        self.assertNotIn(m.NEEDS_HUMAN, w.gh.labels(1))
+
+    def test_error_that_comes_back_while_its_run_is_active_keeps_one_run(self):
+        w = World()
+        w.tick()
+        w.gh.issues_[1].update(state="closed", closed_at="2026-11-10T03:02:00Z")
+        w.tick()
+        w.tick()
+        self.assertEqual(w.gh.issues_[1]["state"], "open")
+        self.assertEqual(w.cursor_server.creates, 1)
 
 
 if __name__ == "__main__":
