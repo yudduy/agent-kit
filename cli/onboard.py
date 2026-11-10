@@ -152,16 +152,25 @@ def init(repo, ref=None, dry_run=False, force=False):
 
 
 def bump(checkout, new):
-    """Rewrite kit SHAs in policy kit_ref and workflow `uses:` lines. Returns changed paths."""
-    changed = []
-    candidates = [checkout / ".agent-kit" / "policy.yml"] + sorted((checkout / ".github" / "workflows").glob("*.y*ml"))
-    for path in (p for p in candidates if p.exists()):
+    """Move every kit pin to `new`: `kit_ref`, every `uses: yudduy/agent-kit/...@<sha>` workflow line, and any other
+    copy of the old `kit_ref` in a file `init` templates (such as the learning check's checkout `ref:`).
+    Returns changed paths."""
+    policy = checkout / ".agent-kit" / "policy.yml"
+    found = re.search(r"^kit_ref:\s*([0-9a-f]{40})", policy.read_text(), re.M) if policy.exists() else None
+    old_ref = found.group(1) if found else None
+    workflows = {str(p.relative_to(checkout)) for p in (checkout / ".github" / "workflows").glob("*.y*ml")}
+    templated, changed = set(render("", new)), []
+    for rel in sorted(workflows | templated):
+        path = checkout / rel
+        if not path.exists():
+            continue
         old = path.read_text()
         text = USES.sub(lambda mt: mt.group(1) + new, old)
-        text = re.sub(r"^(kit_ref:\s*)[0-9a-f]{40}", lambda mt: mt.group(1) + new, text, flags=re.M)
+        if old_ref and rel in templated:
+            text = text.replace(old_ref, new)
         if text != old:
             path.write_text(text)
-            changed.append(str(path.relative_to(checkout)))
+            changed.append(rel)
     return changed
 
 

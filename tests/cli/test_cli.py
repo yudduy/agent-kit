@@ -129,5 +129,46 @@ class Sync(unittest.TestCase):
         self.assertIn(SHA, (repo / ".github/workflows/other.yml").read_text())
 
 
+class SyncPins(unittest.TestCase):
+    def test_bump_moves_every_kit_pin_in_templated_files(self):
+        files = onboard.render("yudduy/shop", SHA)
+        repo = checkout(**files)
+        changed = onboard.bump(repo, NEW)
+        self.assertIn(".github/workflows/agent-learning-check.yml", changed)
+        for rel in files:
+            self.assertNotIn(SHA, (repo / rel).read_text(), rel)
+        self.assertIn("ref: " + NEW, (repo / ".github/workflows/agent-learning-check.yml").read_text())
+
+
+class OtherCommands(unittest.TestCase):
+    def test_doctor_and_verify_explain_when_their_modules_are_missing(self):
+        with mock.patch.dict("sys.modules", {"doctor": None, "doctor.doctor": None, "verify": None, "verify.local_run": None}):
+            for argv in (["doctor"], ["verify", "--sha", "a" * 40, "--scenario", "save-profile"]):
+                with self.assertRaises(SystemExit) as stop:
+                    main(argv)
+                self.assertIn("not in this kit checkout", str(stop.exception))
+
+    def test_doctor_passes_its_arguments_through(self):
+        fake = mock.Mock()
+        fake.main.return_value = 0
+        package = mock.Mock(doctor=fake)
+        with mock.patch.dict("sys.modules", {"doctor": package, "doctor.doctor": fake}):
+            self.assertEqual(main(["doctor", ".", "--env-file", "env.txt"]), 0)
+        fake.main.assert_called_once_with([".", "--env-file", "env.txt"])
+
+    def test_verify_reruns_one_scenario_on_a_head_commit(self):
+        fake = mock.Mock()
+        fake.main.return_value = 0
+        package = mock.Mock(local_run=fake)
+        with mock.patch.dict("sys.modules", {"verify": package, "verify.local_run": fake}):
+            self.assertEqual(main(["verify", "--sha", "b" * 40, "--scenario", "save-profile", "--base", "c" * 40,
+                                   "--isolation", "host"]), 0)
+        argv = fake.main.call_args[0][0]
+        self.assertEqual(argv[:6], ["--repo", ".", "--head", "b" * 40, "--base", "c" * 40])
+        self.assertEqual(argv[argv.index("--scenario") + 1], "save-profile")
+        self.assertIn("--out", argv)
+        self.assertEqual(argv[-2:], ["--isolation", "host"])
+
+
 if __name__ == "__main__":
     unittest.main()
