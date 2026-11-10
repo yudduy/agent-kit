@@ -96,16 +96,16 @@ class Tick:
         self.spent = {}
         tracked = [i for i in self.issues if self.repo_of(i) in self.config["repos"]
                    and (i["state"] == "open" or self.now() - ts(i["updated_at"]) < ACTIVE_WINDOW or self.fp_of(i) in running)]
-        # Occupancy per repo: one key per open claim (its agent id once it has one) and per agent Cursor shows running,
-        # so an agent that is both counts once and an agent that could not be cancelled keeps counting.
+        # Occupancy per repo, keyed by attempt: every open claim, and every attempt whose agent Cursor shows running.
+        # A claim and its agent count once; an agent that could not be cancelled keeps counting.
         self.busy = {}
         for issue in tracked:
             st = self.state(issue)
             if st["phase"] != "idle":
-                self.busy.setdefault(self.repo_of(issue), set()).add(st["cursor_id"] or st["claim"]["attempt"])
+                self.busy.setdefault(self.repo_of(issue), set()).add(st["claim"]["attempt"])
         for fp, agents in running.items():
             if fp in self.by_fp:
-                self.busy.setdefault(self.repo_of(self.by_fp[fp]), set()).update(agent["id"] for agent, _ in agents)
+                self.busy.setdefault(self.repo_of(self.by_fp[fp]), set()).update(attempt for _, attempt in agents)
         self.cancel_unreserved(running)
         for issue in tracked:
             repo = self.repo_of(issue)
@@ -218,11 +218,11 @@ class Tick:
         agents, self.discovered = self.cursor.active(CURSOR_PAGES)
         if not self.discovered:
             self.log("The list of running Cursor agents is incomplete (over %d pages), so no new run starts this tick." % CURSOR_PAGES)
-        self.running_ids = {agent["id"] for agent in agents}
         for agent in agents:
             named = AGENT_NAME.match(agent.get("name") or "")
             if named:
                 found.setdefault(named.group(1), []).append((agent, named.group(2)))
+        self.running_attempts = {attempt for agents in found.values() for _, attempt in agents}
         return found
 
     def cancel_unreserved(self, running):
@@ -352,10 +352,9 @@ class Tick:
 
     def finish(self, issue, attempt, outcome, text):
         """Close the claim with an outcome marker; this, not a label, frees its reservation."""
-        cursor_id = self.state(issue)["cursor_id"]
         self.say(issue, m.json_marker("result", {"attempt": attempt, "outcome": outcome}) + "\n" + text)
-        freed = {attempt} | ({cursor_id} - self.running_ids if cursor_id else set())  # an agent Cursor shows running stays
-        self.busy[self.repo_of(issue)] = self.busy.get(self.repo_of(issue), set()) - freed
+        if attempt not in self.running_attempts:  # an agent Cursor still shows running keeps its slot
+            self.busy.get(self.repo_of(issue), set()).discard(attempt)
 
     def reconcile(self, issue, st):
         """INV-8: a claim with no run line is looked up in Cursor before any retry."""

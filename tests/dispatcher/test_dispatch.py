@@ -688,6 +688,18 @@ class Discovery(unittest.TestCase):
         self.assertEqual(w.cursor_server.creates, 2, "the old agent that could not be cancelled still holds the repo")
 
 
+class Occupancy(unittest.TestCase):
+    def test_an_ambiguous_create_takes_one_slot_not_two(self):
+        w = World(config(["yudduy/a", "yudduy/b", "yudduy/c"]))
+        w.cursor_server.lose_create = True
+        w.rows = lambda repo, s: sources.sentry("acme", "a", "t", send=sentry_row(repo)) if repo == "yudduy/a" else []
+        w.tick()
+        w.cursor_server.lose_create = False
+        w.rows = lambda repo, s: sources.sentry("acme", s["sentry"]["project"], "t", send=sentry_row(repo))
+        w.tick()
+        self.assertEqual(w.cursor_server.creates, 3, "the lost-response claim and its agent are one run")
+
+
 class SteerDelivery(unittest.TestCase):
     def setUp(self):
         self.w = World()
