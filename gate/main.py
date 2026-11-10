@@ -157,7 +157,7 @@ def _kit_pins(client, repo, base_sha):
     for entry in listing:
         if entry["type"] == "file" and entry["name"].endswith((".yml", ".yaml")):
             # Undo the YAML escapes that keep text readable (escaped line breaks, `\/`) before scanning.
-            text = re.sub(r"\\\r?\n[ \t]*", "", _file(client, repo, entry["path"], base_sha)[0]).replace("\\/", "/")
+            text = re.sub(r"\\(?:\r\n|\r|\n)[ \t]*", "", _file(client, repo, entry["path"], base_sha)[0]).replace("\\/", "/")
             refs = [ref[:-1] if quote and ref.endswith(quote) else ref for quote, ref in KIT_USES.findall(text)]
             if re.search(r"\\[xuU]", text):  # shortcut: a text scan cannot decode YAML escapes, so fail closed
                 refs.append("an unreadable ref (YAML escape)")

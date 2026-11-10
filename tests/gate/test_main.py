@@ -101,6 +101,7 @@ class TickTest(unittest.TestCase):
                    '  other:\n    uses: "yudduy/agent-kit\\u002f.github/workflows/verify.yml@main"\n',
                    '  other:\n    uses: "yudduy\\/agent-kit/.github/workflows/verify.yml@main"\n',
                    '  other:\n    uses: "yudduy/agent-\\\n      kit/.github/workflows/verify.yml@main"\n',
+                   '  other:\n    uses: "yudduy/agent-\\\r      kit/.github/workflows/verify.yml@main"\n',
                    "    steps:\n      - uses: yudduy/agent-kit@main\n")
         for caller in callers:
             with self.subTest(caller):
