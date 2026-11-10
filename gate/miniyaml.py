@@ -52,7 +52,7 @@ def _strip_comment(line):
                 escaped = True
             elif ch == quote:
                 quote = None
-        elif ch in "\"'":
+        elif ch in "\"'" and (i == 0 or line[i - 1] in " \t[{,"):  # mid-value quotes are literal
             quote = ch
         elif ch == "#" and (i == 0 or line[i - 1] in " \t"):
             return line[:i]

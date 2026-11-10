@@ -97,6 +97,8 @@ class MiniYamlTest(unittest.TestCase):
     def test_escaped_quote_does_not_start_a_comment(self):
         self.assertEqual(miniyaml.loads('build: "echo \\" # hi"  # real comment\n'), {"build": 'echo " # hi'})
         self.assertEqual(miniyaml.loads('a: "back\\\\" # c\n'), {"a": "back\\"})
+        self.assertEqual(miniyaml.loads('build: echo \\"x\\" # comment\n'), {"build": 'echo \\"x\\"'})
+        self.assertEqual(miniyaml.loads("a: it's fine # c\nb: ['x', \"y\"] # c\n"), {"a": "it's fine", "b": ["x", "y"]})
 
     def test_rejects_unsupported_yaml(self):
         for text in ("a: &x 1\nb: *x\n", "a: |\n  text\n", "a: !tag x\n", "a: 1\na: 2\n", "a:\n\tb: 1\n", "a: [1,\n  2]\n", "a: 1\n---\nb: 2\n"):
