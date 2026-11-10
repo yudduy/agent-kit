@@ -1,0 +1,46 @@
+# agent-kit dispatcher (design D4). The only writer of incident run state; one global concurrency group.
+# Environment `dispatch` holds: CURSOR_API_KEY (dispatcher's own key), SENTRY_TOKEN, DATADOG_API_KEY, DATADOG_APP_KEY,
+# AGENT_KIT_READ_TOKEN (fine-grained, Contents: read on onboarded repos only). Never the gate App key.
+# Issue writes use this workflow's own token, so the dispatcher's comments do not re-trigger it.
+name: dispatch
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  issues:
+    types: [opened, reopened, labeled]
+  issue_comment:
+    types: [created, edited]
+  workflow_dispatch:
+concurrency:
+  group: agent-kit-dispatch
+  cancel-in-progress: false
+permissions:
+  contents: read
+  issues: write
+jobs:
+  tick:
+    runs-on: ubuntu-24.04
+    environment: dispatch
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          path: control
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: yudduy/agent-kit
+          ref: {{KIT_REF}}
+          path: kit
+          persist-credentials: false
+      - name: Dispatch
+        working-directory: kit
+        env:
+          AGENT_KIT_PAUSED: ${{ vars.AGENT_KIT_PAUSED }}
+          GITHUB_TOKEN: ${{ github.token }}
+          AGENT_KIT_READ_TOKEN: ${{ secrets.AGENT_KIT_READ_TOKEN }}
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          SENTRY_TOKEN: ${{ secrets.SENTRY_TOKEN }}
+          DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+          DATADOG_APP_KEY: ${{ secrets.DATADOG_APP_KEY }}
+        run: python3 -m dispatcher --control ../control
