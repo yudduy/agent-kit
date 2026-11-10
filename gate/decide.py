@@ -54,7 +54,7 @@ def decide(f):
     except PolicyError as error:
         policy = None
         blocking.append(str(error))
-    cls, hits = classify(f.files, policy)
+    cls, hits = classify(f.files, policy, f.pr["head"]["ref"])
 
     required = {f"{c['name']} ({c['app']})": f.checks.get(c["name"], {}).get(c["app"], "missing")
                 for c in (policy or {}).get("required_checks", [])}

@@ -170,14 +170,16 @@
         "sha": "cccccccccccccccccccccccccccccccccccccccc",
         "repo": {
           "full_name": "yudduy/demo"
-        }
+        },
+        "ref": "agent/pr-12"
       },
       "base": {
         "ref": "main",
         "repo": {
           "default_branch": "main"
         }
-      }
+      },
+      "labels": []
     },
     {
       "number": 13,
@@ -190,14 +192,16 @@
         "sha": "9999999999999999999999999999999999999999",
         "repo": {
           "full_name": "yudduy/demo"
-        }
+        },
+        "ref": "agent/pr-13"
       },
       "base": {
         "ref": "main",
         "repo": {
           "default_branch": "main"
         }
-      }
+      },
+      "labels": []
     }
   ]
 }

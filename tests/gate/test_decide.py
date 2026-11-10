@@ -26,6 +26,30 @@ class DecideTest(unittest.TestCase):
         self.assertEqual(record["class"], "governance")
         self.assertBlocked(record, "class governance needs a human approval")
 
+    def test_learning_pr_never_auto_merges_inv11(self):
+        f = facts(files=[change("docs/features/profile.md")])
+        f.pr["head"]["ref"] = "learn/case-3f9a"
+        record = gate(f)
+        self.assertEqual(record["class"], "governance")
+        self.assertBlocked(record, "class governance needs a human approval")
+
+    def test_skill_or_agents_edit_is_governance(self):
+        for path in ("skills/verify-app/SKILL.md", "AGENTS.md"):
+            with self.subTest(path):
+                record = gate(facts(files=[change(path)]))
+                self.assertEqual(record["class"], "governance")
+                self.assertBlocked(record, "needs a human approval")
+
+    def test_labels_never_change_the_class(self):
+        for labels in ([{"name": "governance"}], []):
+            f = facts()
+            f.pr["labels"] = labels
+            with self.subTest(labels):
+                self.assertEqual((gate(f)["class"], gate(f)["conclusion"]), ("docs", "success"))
+        f = facts(files=[change("skills/a/SKILL.md")])
+        f.pr["labels"] = [{"name": "docs"}]
+        self.assertEqual(gate(f)["class"], "governance")
+
     def test_bot_approval_does_not_count_inv4(self):
         f = facts(files=[change("src/app.py")], reviews=[review("yudduy", user_type="Bot")])
         self.assertBlocked(gate(f), "needs a human approval")

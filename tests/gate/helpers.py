@@ -83,7 +83,7 @@ def facts(files=None, edit=None, tamper=None, **overrides):
     values = dict(
         repo=REPO,
         pr={"number": 12, "draft": False, "user": {"login": "agent-bot[bot]", "type": "Bot"},
-            "head": {"sha": HEAD, "repo": {"full_name": REPO}}, "base": {"ref": "main", "repo": {"default_branch": "main"}}},
+            "head": {"sha": HEAD, "ref": "agent/fix-docs", "repo": {"full_name": REPO}}, "labels": [], "base": {"ref": "main", "repo": {"default_branch": "main"}}},
         base_sha=BASE,
         behind_by=0,
         files=files if files is not None else [change("docs/guide.md")],

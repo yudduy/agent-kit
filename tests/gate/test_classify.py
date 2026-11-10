@@ -19,9 +19,18 @@ class ClassifyTest(unittest.TestCase):
         for path in (".agent-kit/policy.yml", ".agent-kit/journeys/save-profile.spec.ts", ".github/workflows/ci.yml",
                      ".github/README.md", ".cursor/skills/verify-app/SKILL.md", "CODEOWNERS", "docs/CODEOWNERS",
                      "AGENTS.md", "src/AGENTS.md", "CLAUDE.md", "db/seed.sql", "evals/grader.py", "fixtures/profile.md",
-                     "tests/fixtures/sentry/event.json", "skills/evals/cases.json"):
+                     "tests/fixtures/sentry/event.json", "skills/evals/cases.json",
+                     "SKILL.md", "tools/x/SKILL.md", "skills/verify/run.py", "pkg/skills/a.txt", ".claude/settings.json",
+                     ".agents/skills/x/SKILL.md", "docs/design/invariants.md", "docs/AGENTS.md"):
             with self.subTest(path):
                 self.assertEqual(cls(change(path))[0], "governance")
+
+    def test_feature_docs_stay_docs(self):
+        self.assertEqual(cls(change("docs/features/profile.md")), ("docs", ["docs"]))
+
+    def test_learning_branch_is_always_governance_inv11(self):
+        self.assertEqual(classify([change("docs/features/profile.md")], POLICY_DICT, head_ref="learn/case-3f9a"), ("governance", ["governance", "docs"]))
+        self.assertEqual(classify([change("docs/features/profile.md")], POLICY_DICT, head_ref="agent/learn/x")[0], "docs")
 
     def test_floor_holds_without_repo_policy(self):
         self.assertEqual(cls(change(".github/workflows/ci.yml"), policy=None)[0], "governance")
