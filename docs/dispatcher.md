@@ -91,11 +91,13 @@ python3 -m dispatcher.macmini steer 12 --text "Also cover the empty-name case"
 The helper never calls Cursor and needs no Cursor key. `steer` posts a request comment
 (`<!-- agent-kit:steer v1 {"id": …, "prompt_sha256": …} -->` and the text), accepted only from a login in
 `deciders` with an intact prompt hash. On its next tick the dispatcher sends it into the current claim's active
-run and records a `steered` marker, so each request is sent once; with no active run it is refused.
+run. It writes the `steered` marker before calling Cursor and fills in the result after, so a failed write can never
+cause a second send; a request id is sent at most once. With no active run, or when its claim never reached Cursor,
+the request is refused.
 A steer can still become the agent's next run (Cursor queues it, or the turn ends before reading it). That run
 belongs to the same claim: the claim stays reserved, counting against the caps, until 10 minutes after the steered
-run ends with no later run, and then the claim closes on whichever run came last. One fingerprint never has more
-than one active run.
+run ends with no later run, and then the claim closes on whichever run came last. If Cursor still starts a run after
+that, the run has no open claim and the next tick cancels it, so one fingerprint never keeps more than one active run.
 
 ## Cursor
 
@@ -107,5 +109,11 @@ get run, steer. The dispatcher is its only caller. If the beta changes, only tha
 Run state comes only from markers the dispatcher writes (`claim`, `run`, `result`, `escalate`, `reopen`, `idle`,
 `steered`), the requests deciders write (`decision`, `steer`), and Cursor's run state. A claim without a `result`
 marker is a reservation, whatever the labels say. The dispatcher's labels (`agent:claimed`, `agent:running`,
-`agent:pr-open`, `agent:triaged`, `agent:needs-human`) only display that state, and each tick resets them to match;
-removing or adding one by hand changes nothing.
+`agent:pr-open`, `agent:triaged`, `agent:needs-human`, and `agent:incident`) only display that state, and each tick
+resets them to match; removing or adding one by hand changes nothing. Incidents are found by listing every issue the
+dispatcher opened with an intake marker, not by label. A marker counts only when it opens a dispatcher comment, and
+text relayed from Cursor or a source is made inert, so quoted text can never pose as a marker.
+
+Each tick also lists Cursor's running agents (up to 5 pages). A running `agent-kit <fp> <attempt>` agent counts
+against its repo's caps even if its incident was closed long ago, and its incident is followed until the run ends.
+A running agent whose attempt is not its incident's open claim is cancelled.

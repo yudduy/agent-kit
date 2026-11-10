@@ -25,6 +25,18 @@ def intake(fp, source, src_id, first_seen, repo):
     return "<!-- agent-kit:intake v1 fp:%s source:%s src-id:%s first-seen:%s repo:%s -->" % (fp, source, src_id, first_seen, repo)
 
 
+def lead(kind, text):
+    """Fields of a `kind` marker that opens the text, or None. Dispatcher comments always open with their marker,
+    and relayed text is made inert, so a marker quoted further down never counts."""
+    text = (text or "").lstrip()
+    return parse(kind, text.split("-->", 1)[0] + "-->") if text.startswith("<!-- agent-kit:%s v1 " % kind) else None
+
+
+def inert(text):
+    """Text from Cursor or a source, safe to post: it cannot form a marker."""
+    return (text or "").replace("<!--", "<!- -")
+
+
 def json_marker(kind, payload):
     return "<!-- agent-kit:%s v1 %s -->" % (kind, json.dumps(payload, separators=(",", ":")))
 

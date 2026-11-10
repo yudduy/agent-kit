@@ -34,8 +34,8 @@ class GitHub:
     def whoami(self):
         return self._call("GET", "/user")[2]["login"]
 
-    def issues(self, repo, label, state="open"):
-        query = urllib.parse.urlencode({"labels": label, "state": state, "per_page": 100})
+    def issues(self, repo, label=None, state="open"):
+        query = urllib.parse.urlencode({**({"labels": label} if label else {}), "state": state, "per_page": 100})
         return [i for i in self._pages("/repos/%s/issues?%s" % (repo, query)) if "pull_request" not in i]
 
     def create_issue(self, repo, title, body, labels):

@@ -4,6 +4,7 @@ Run state lives only in agent-control issues (C3), as markers the dispatcher wri
 Labels are display only and repaired each tick. The workflow's global concurrency group makes this the single
 writer, and the dispatcher is the only caller of the Cursor API.
 """
+import re
 from datetime import datetime, timedelta, timezone
 
 from dispatcher import cursor as cursor_api
@@ -41,21 +42,26 @@ def mine(item):
     return (item.get("user") or {}).get("login") == DISPATCHER_LOGIN
 
 
+def own(kind, comments):
+    """Fields of every `kind` marker that opens a dispatcher comment."""
+    return [{**f, "created_at": c["created_at"], "comment_id": c.get("id")} for c in comments
+            if mine(c) and isinstance(f := m.lead(kind, c["body"]), dict)]
+
+
 def current(comments):
-    reopens = [i for i, c in enumerate(comments) if mine(c) and m.parse("reopen", c["body"])]
+    reopens = [i for i, c in enumerate(comments) if mine(c) and m.lead("reopen", c["body"])]
     return comments[reopens[-1] + 1:] if reopens else comments
 
 
 def claims_in(comments):
-    return [{**claim, "created_at": c["created_at"]} for c in comments if mine(c) and (claim := m.parse("claim", c["body"]))]
+    return own("claim", comments)
 
 
 def runs_in(comments):
-    return {r["attempt"]: r["cursor_id"] for r in (m.parse("run", c["body"]) for c in comments if mine(c)) if r}
+    return {r["attempt"]: r["cursor_id"] for r in own("run", comments)}
 
 
-def own(kind, comments):
-    return [f for c in comments if mine(c) and isinstance(f := m.parse(kind, c["body"]), dict)]
+AGENT_NAME = re.compile(r"^agent-kit ([0-9a-f]{16}) (\S+)$")
 
 
 def state(comments):
@@ -82,16 +88,21 @@ class Tick:
     def run(self):
         self.started = self.now()  # events after this may be missing from this tick's pull
         self._comments = {}
-        self.issues = self.gh.issues(self.ctl, m.INCIDENT, state="all")
+        self.issues = self.gh.issues(self.ctl, state="all")  # not by label: labels are display only
         self.intake()
+        running = self.cursor_running()
         today = self.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        self.active, self.spent = {}, {}
+        self.spent = {}
         tracked = [i for i in self.issues if self.repo_of(i) in self.config["repos"]
-                   and (i["state"] == "open" or self.now() - ts(i["updated_at"]) < ACTIVE_WINDOW)]
+                   and (i["state"] == "open" or self.now() - ts(i["updated_at"]) < ACTIVE_WINDOW or self.fp_of(i) in running)]
+        busy = {(self.repo_of(i), self.fp_of(i)) for i in tracked if self.state(i)["phase"] != "idle"}
+        busy |= {(self.repo_of(self.by_fp[fp]), fp) for fp in running if fp in self.by_fp}  # a run Cursor shows still counts
+        self.active = {}
+        for repo, _ in busy:
+            self.active[repo] = self.active.get(repo, 0) + 1
+        self.cancel_unreserved(running)
         for issue in tracked:
             repo = self.repo_of(issue)
-            if self.state(issue)["phase"] != "idle":  # a closed issue's run still runs, so it still counts
-                self.active[repo] = self.active.get(repo, 0) + 1
             if ts(issue["updated_at"]) >= today:
                 claims_today = [c for c in claims_in(self.comments(issue, since_reopen=False)) if ts(c["created_at"]) >= today]
                 self.spent[repo] = self.spent.get(repo, 0) + self.cost * len(claims_today)
@@ -114,12 +125,12 @@ class Tick:
 
     # Intake (C3): one issue per fingerprint, reopened when a closed error comes back.
     def intake(self):
-        by_fp, self.seen, self.pulled = {}, set(), set()
-        self.issues = [i for i in self.issues if mine(i)]  # an intake marker counts only in an issue the dispatcher opened
+        self.by_fp = by_fp = {}
+        self.seen, self.pulled = set(), set()
+        # an intake marker counts only when it opens an issue the dispatcher opened
+        self.issues = [i for i in self.issues if "pull_request" not in i and mine(i) and m.lead("intake", i.get("body"))]
         for issue in self.issues:
-            fields = m.parse("intake", issue.get("body"))
-            if fields:
-                by_fp[fields["fp"]] = issue
+            by_fp[self.fp_of(issue)] = issue
         for repo in self.config["repos"]:
             try:
                 rows = self.pull(repo, self.config["sources"].get(repo, {}))
@@ -190,12 +201,43 @@ class Tick:
         return bool(decisions) and decisions[-1]["action"] == "ignore"
 
     def repo_of(self, issue):
-        return (m.parse("intake", issue.get("body")) or {}).get("repo")
+        return (m.lead("intake", issue.get("body")) or {}).get("repo")
+
+    def fp_of(self, issue):
+        return (m.lead("intake", issue.get("body")) or {}).get("fp")
+
+    def cursor_running(self):
+        """{fp: [(agent, attempt)]} for this kit's agents that Cursor shows with a turn running."""
+        found = {}
+        for agent in self.cursor.active():
+            named = AGENT_NAME.match(agent.get("name") or "")
+            if named:
+                found.setdefault(named.group(1), []).append((agent, named.group(2)))
+        return found
+
+    def cancel_unreserved(self, running):
+        """A running agent whose attempt is not this incident's open claim (a late queued follow-up, or an old
+        attempt) has no reservation, so it is cancelled at once: one active run per fingerprint (INV-8)."""
+        for fp, agents in running.items():
+            issue = self.by_fp.get(fp)
+            if issue is None:
+                continue
+            st = self.state(issue)
+            for agent, attempt in agents:
+                if st["phase"] != "idle" and st["claim"]["attempt"] == attempt:
+                    continue
+                try:
+                    run = self.cursor.latest_run(agent["id"])
+                    self.cursor.cancel(agent["id"], run["id"])
+                except cursor_api.CursorError as error:
+                    self.log("Could not cancel unreserved agent %s: %s" % (agent["id"], error))
+                    continue
+                self.say(issue, "Cancelled a Cursor run this incident had no open claim for: %s." % agent.get("url", agent["id"]))
 
     def repair_labels(self, issue):
         """Labels show the markers' state; the dispatcher's own labels are reset to match each tick."""
         st = self.state(issue)
-        want = {m.CLAIMED: st["phase"] == "claimed", m.RUNNING: st["phase"] == "running",
+        want = {m.INCIDENT: True, m.CLAIMED: st["phase"] == "claimed", m.RUNNING: st["phase"] == "running",
                 m.PR_OPEN: st["phase"] == "idle" and st["outcome"] == "pr",
                 m.TRIAGED: st["phase"] == "idle" and st["outcome"] == "triage", m.NEEDS_HUMAN: st["escalated"]}
         have = labels_of(issue)
@@ -239,10 +281,11 @@ class Tick:
             return
         if self.idle(issue):
             return self.close_idle(issue)
-        if st["outcome"] not in ("pr", "triage") and not st["escalated"] and not self.ignored(issue):
-            self.maybe_start(issue, st)
+        self.maybe_start(issue, st)
 
     def maybe_start(self, issue, st):
+        if st["outcome"] in ("pr", "triage") or st["escalated"] or self.ignored(issue):
+            return
         repo = self.repo_of(issue)
         loaded = self.caps(repo)
         if loaded is None:
@@ -311,6 +354,7 @@ class Tick:
         agent = self.cursor.find(claim["attempt"], not_before)
         if agent:
             return self.record(issue, claim["attempt"], agent)
+        self.refuse_steers(issue, "its claim never reached Cursor")
         if issue["state"] != "open":
             return self.finish(issue, claim["attempt"], "lost", "Attempt %d never reached Cursor; the issue is closed, so no retry." % st["attempts"])
         self.finish(issue, claim["attempt"], "lost", "Attempt %d never reached Cursor; retrying once with a new attempt." % st["attempts"])
@@ -329,20 +373,27 @@ class Tick:
         attempt = st["claim"]["attempt"]
         prs = [b["prUrl"] for b in (run.get("git") or {}).get("branches", []) if b.get("prUrl")]
         if run["status"] == "FINISHED" and prs:
-            self.finish(issue, attempt, "pr", "Cursor opened a fix: %s" % prs[0])
+            self.finish(issue, attempt, "pr", "Cursor opened a fix: %s" % m.inert(prs[0]))
         elif run["status"] == "FINISHED":
-            self.finish(issue, attempt, "triage", "Cursor finished without a fix. Its triage:\n\n" + (run.get("result") or "(empty)")[:6000])
+            self.finish(issue, attempt, "triage", "Cursor finished without a fix. Its triage:\n\n" + m.inert(run.get("result") or "(empty)")[:6000])
         else:
             self.finish(issue, attempt, "failed", "Attempt %d failed: the Cursor run ended as %s." % (st["attempts"], run["status"]))
 
     # Steering (D5): deciders post requests; only the dispatcher calls Cursor.
     def steers(self, issue):
-        handled = {s["id"] for s in own("steered", self.comments(issue))}
-        return [r for r in (m.steer_request(c, self.config["deciders"]) for c in self.comments(issue)) if r and r["id"] not in handled]
+        """Pending requests, once each by id."""
+        seen = {s["id"] for s in own("steered", self.comments(issue))}
+        pending = []
+        for request in (m.steer_request(c, self.config["deciders"]) for c in self.comments(issue)):
+            if request and request["id"] not in seen:
+                seen.add(request["id"])
+                pending.append(request)
+        return pending
 
     def sent_steers(self, issue, st):
         """Steers sent into this claim's agent, newest last."""
-        return [s for s in own("steered", self.comments(issue)) if s.get("attempt") == st["claim"]["attempt"] and s.get("after_run")]
+        return [s for s in own("steered", self.comments(issue)) if s.get("attempt") == st["claim"]["attempt"] and s.get("after_run")
+                and s.get("delivery") != "refused"]
 
     def steer_may_start_a_run(self, issue, st, run):
         """A steer sent into this run can still become the agent's next run (a queued steer, or one the turn ended
@@ -354,16 +405,21 @@ class Tick:
         for request in self.steers(issue):
             if any(s["delivery"] != "steered" and s["after_run"] == run["id"] for s in self.sent_steers(issue, st)):
                 return  # a queued prompt has not started yet; send the next steer after it does
+            # The intent is recorded before the call, so a failed write after it can never cause a second send.
+            fields = {"id": request["id"], "delivery": "sending", "attempt": st["claim"]["attempt"], "after_run": run["id"]}
+            intent = self.say(issue, m.json_marker("steered", fields) + "\nSending this steer to the running agent.")
             try:
-                delivery = self.cursor.steer(st["cursor_id"], request["prompt"]).get("delivery", "unknown")
+                fields["delivery"], note = self.cursor.steer(st["cursor_id"], request["prompt"]).get("delivery", "unknown"), "sent"
             except cursor_api.Ambiguous:
-                delivery = "unknown"  # it may have arrived; Cursor treats a retry as a new prompt, so never retry
+                fields["delivery"], note = "unknown", "may have arrived; it is not retried"
             except cursor_api.CursorError as error:
-                self.say(issue, m.json_marker("steered", {"id": request["id"], "delivery": "refused"})
-                         + "\nCursor refused the steer (%s)." % error.status)
-                continue
-            self.say(issue, m.json_marker("steered", {"id": request["id"], "delivery": delivery, "attempt": st["claim"]["attempt"],
-                                                      "after_run": run["id"]}) + "\nSteer sent to the running agent (%s)." % delivery)
+                fields["delivery"], note = "refused", "refused by Cursor (%s)" % error.status
+            body = m.json_marker("steered", fields) + "\nSteer %s (%s)." % (note, fields["delivery"])
+            try:
+                self.gh.edit_comment(self.ctl, intent["id"], body)
+                intent["body"] = body
+            except Exception as error:  # the intent marker already blocks a resend
+                self.log("Could not record the steer result on #%d: %s" % (issue["number"], error))
 
     def refuse_steers(self, issue, reason):
         for request in self.steers(issue):

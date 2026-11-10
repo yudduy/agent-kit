@@ -1,7 +1,7 @@
 """The only module that talks to Cursor: Cloud Agents API v1 (beta), https://cursor.com/docs/cloud-agent/api/endpoints.
 
 Endpoints used: POST /v1/agents, GET /v1/agents, GET /v1/agents/{id},
-GET /v1/agents/{id}/runs/{runId}, POST /v1/agents/{id}/runs (steer).
+GET /v1/agents/{id}/runs/{runId}, POST /v1/agents/{id}/runs (steer), POST /v1/agents/{id}/runs/{runId}/cancel.
 The dispatcher is the only caller of this module.
 """
 import base64
@@ -76,6 +76,20 @@ class Client:
     def latest_run(self, cursor_id):
         agent = self.get(cursor_id)
         return self._call("GET", "/v1/agents/%s/runs/%s" % (cursor_id, agent["latestRunId"]))
+
+    def active(self, max_pages=5):
+        """Agents with a turn running, newest first, from at most `max_pages` pages of the list."""
+        found, cursor = [], None
+        for _ in range(max_pages):
+            page = self._call("GET", "/v1/agents", query={"limit": 100, "includeArchived": "false", **({"cursor": cursor} if cursor else {})})
+            found += [a for a in page.get("items", []) if a.get("status") == "ACTIVE"]
+            cursor = page.get("nextCursor")
+            if not cursor:
+                break
+        return found
+
+    def cancel(self, cursor_id, run_id):
+        return self._call("POST", "/v1/agents/%s/runs/%s/cancel" % (cursor_id, run_id))
 
     def steer(self, cursor_id, text):
         """`{"delivery": "steered"|"queued", ...}`. A queued steer becomes the agent's next run. Ambiguous when the

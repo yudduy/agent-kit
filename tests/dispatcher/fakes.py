@@ -31,7 +31,7 @@ class FakeGitHub:
     def __init__(self, clock, login):
         self.clock, self.login = clock, login
         self.issues_, self.comments_, self.events_, self.files = {}, {}, {}, {}
-        self.assigned, self._next = {}, 1000
+        self.assigned, self._next, self.fail_edits, self.fail_comments_with = {}, 1000, False, None
 
     def _id(self):
         self._next += 1
@@ -40,9 +40,9 @@ class FakeGitHub:
     def whoami(self):
         return self.login
 
-    def issues(self, repo, label, state="open"):
+    def issues(self, repo, label=None, state="open"):
         return [copy.deepcopy(i) for i in self.issues_.values()
-                if any(l["name"] == label for l in i["labels"]) and state in ("all", i["state"])]
+                if (label is None or any(l["name"] == label for l in i["labels"])) and state in ("all", i["state"])]
 
     def create_issue(self, repo, title, body, labels):
         number = len(self.issues_) + 1
@@ -81,6 +81,8 @@ class FakeGitHub:
         return copy.deepcopy(self.comments_.get(number, []))
 
     def comment(self, repo, number, body, login=None):
+        if self.fail_comments_with and self.fail_comments_with in body:
+            raise RuntimeError("GitHub is down")
         c = {"id": self._id(), "body": body, "user": {"login": login or self.login},
              "created_at": self.clock.iso(), "updated_at": self.clock.iso()}
         self.comments_.setdefault(number, []).append(c)
@@ -89,6 +91,8 @@ class FakeGitHub:
         return copy.deepcopy(c)
 
     def edit_comment(self, repo, comment_id, body):
+        if self.fail_edits:
+            raise RuntimeError("GitHub is down")
         for c in (c for cs in self.comments_.values() for c in cs if c["id"] == comment_id):
             c.update(body=body, updated_at=self.clock.iso())
             return copy.deepcopy(c)
@@ -110,7 +114,7 @@ class FakeCursor:
     def __init__(self, clock):
         self.clock, self.agents, self.creates = clock, {}, 0
         self.run_status, self.lose_create, self.fail_create = "RUNNING", False, False
-        self.steers, self.steer_delivery = [], "steered"
+        self.steers, self.steer_delivery, self.cancels, self.frozen_end = [], "steered", [], None
 
     def __call__(self, method, url, headers=None, body=None):
         path = url.split("api.cursor.com", 1)[1].split("?")[0]
@@ -129,13 +133,19 @@ class FakeCursor:
             return 201, {}, {"agent": agent, "run": created["run"]}
         if method == "GET" and path == "/v1/agents":
             items = sorted(self.agents.values(), key=lambda a: a["createdAt"], reverse=True)
-            return 200, {}, {"items": items}
+            return 200, {}, {"items": [{**a, "status": self.status(a)} for a in items]}
         parts = path.strip("/").split("/")
         if method == "GET" and len(parts) == 3:
-            return (200, {}, self.agents[parts[2]]) if parts[2] in self.agents else (404, {}, {"code": "not_found"})
+            if parts[2] not in self.agents:
+                return 404, {}, {"code": "not_found"}
+            return 200, {}, {**self.agents[parts[2]], "status": self.status(self.agents[parts[2]])}
+        if method == "POST" and len(parts) == 6 and parts[5] == "cancel":
+            self.cancels.append((parts[2], parts[4]))
+            self.run_status = "CANCELLED"
+            return 200, {}, {"id": parts[4]}
         if method == "GET" and len(parts) == 5 and parts[3] == "runs":
             run = {**fixture("cursor_run_finished.json"), "id": parts[4], "agentId": parts[2], "status": self.run_status,
-                   "updatedAt": self.clock.iso()}
+                   "updatedAt": self.frozen_end or self.clock.iso()}
             if self.run_status != "FINISHED":
                 run.pop("git")
             return 200, {}, run
@@ -147,3 +157,6 @@ class FakeCursor:
     def new_run(self, agent_id, run_id):
         """The agent's queued follow-up starts as a new run."""
         self.agents[agent_id]["latestRunId"] = run_id
+
+    def status(self, agent):
+        return "ACTIVE" if self.run_status in ("CREATING", "RUNNING", "WAITING_FOR_BACKGROUND_WORK") else "IDLE"
