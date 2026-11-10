@@ -9,7 +9,7 @@ from dispatcher import cursor, markers as m, sources
 from dispatcher import tick as tick_module
 from dispatcher.__main__ import load, main
 from dispatcher.tick import DEFAULT_PROMPT, DISPATCHER_LOGIN, Tick
-from fakes import Clock, FakeCursor, FakeGitHub, fixture
+from .fakes import Clock, FakeCursor, FakeGitHub, fixture
 
 CTL = "yudduy/agent-control"
 
@@ -312,6 +312,98 @@ class Paused(unittest.TestCase):
                 mock.patch("dispatcher.github.GitHub", side_effect=AssertionError("no GitHub calls when paused")), \
                 mock.patch("dispatcher.cursor.Client", side_effect=AssertionError("no Cursor calls when paused")):
             self.assertEqual(main(["--control", "/nonexistent"]), 0)
+
+
+class ClosedWhileRunning(unittest.TestCase):
+    def test_a_closed_issue_still_holds_its_run_against_the_caps(self):
+        w = World()
+        w.tick()
+        w.gh.issues_[1].update(state="closed", closed_at=w.clock.iso())
+        w.rows = lambda repo, s: sources.sentry("acme", "shop", "t", send=sentry_row("2"))
+        w.tick()
+        self.assertEqual(len(w.gh.issues_), 2)
+        self.assertEqual(w.cursor_server.creates, 1, "the closed issue's run still counts against 1 per repo")
+        w.cursor_server.run_status = "FINISHED"
+        w.tick()
+        self.assertNotIn(m.RUNNING, w.gh.labels(1), "the closed issue's finished run is followed and released")
+        w.cursor_server.run_status = "RUNNING"
+        w.tick()
+        self.assertEqual(w.cursor_server.creates, 2)
+
+    def test_a_closed_claim_is_reconciled_but_never_retried(self):
+        w = World()
+        w.cursor_server.fail_create = True
+        w.tick()
+        w.cursor_server.fail_create = False
+        w.gh.issues_[1].update(state="closed", closed_at=w.clock.iso())
+        w.rows = lambda repo, s: []
+        w.tick(10)
+        w.tick()
+        self.assertEqual(w.cursor_server.creates, 0)
+        self.assertNotIn(m.CLAIMED, w.gh.labels(1))
+
+
+class IdleClose(unittest.TestCase):
+    def test_an_incident_idle_for_30_days_is_closed(self):
+        w = World()
+        w.tick()
+        w.cursor_server.run_status = "FINISHED"
+        w.rows = lambda repo, s: []
+        w.tick()
+        w.clock.advance(31 * 24 * 60)
+        w.tick()
+        self.assertEqual(w.gh.issues_[1]["state"], "closed")
+        self.assertIn("30 days", w.gh.comments_[1][-1]["body"])
+
+    def test_a_still_firing_or_active_incident_stays_open(self):
+        w = World()
+        w.tick()
+        w.clock.advance(31 * 24 * 60)
+        w.tick()
+        self.assertEqual(w.gh.issues_[1]["state"], "open", "its run is active and its error was seen this tick")
+        w.cursor_server.run_status = "FINISHED"
+        w.tick()
+        w.clock.advance(31 * 24 * 60)
+        w.tick()
+        self.assertEqual(w.gh.issues_[1]["state"], "open", "the error is still in this tick's pull")
+
+
+class Pagination(unittest.TestCase):
+    def test_sentry_follows_next_links_until_results_run_out(self):
+        pages = {None: (["1", "2"], True), "c1": (["3"], False)}
+        calls = []
+
+        def send(method, url, headers=None, body=None):
+            cursor = url.split("cursor=")[1].split("&")[0] if "cursor=" in url else None
+            calls.append(cursor)
+            ids, more = pages[cursor]
+            link = '<https://sentry.io/x?cursor=c0>; rel="previous"; results="false"; cursor="c0", ' \
+                   '<https://sentry.io/api/0/organizations/acme/issues/?cursor=c1>; rel="next"; results="%s"; cursor="c1"' % ("true" if more else "false")
+            return 200, {"Link": link}, [{**fixture("sentry_issues.json")[0], "id": i} for i in ids]
+
+        self.assertEqual([r["src_id"] for r in sources.sentry("acme", "shop", "t", send=send)], ["1", "2", "3"])
+        self.assertEqual(calls, [None, "c1"])
+
+    def test_sentry_stops_at_the_page_limit(self):
+        send = lambda *a, **k: (200, {"Link": '<https://sentry.io/n?cursor=c>; rel="next"; results="true"; cursor="c"'}, [fixture("sentry_issues.json")[0]])
+        self.assertEqual(len(sources.sentry("acme", "shop", "t", send=send)), sources.MAX_PAGES)
+
+    def test_datadog_splits_a_full_window_and_dedupes(self):
+        def result(i):
+            return {"id": i, "type": "error_tracking_search_result", "attributes": {"total_count": 1},
+                    "relationships": {"issue": {"data": {"id": i, "type": "issue"}}}}
+        windows = []
+
+        def send(method, url, headers=None, body=None):
+            a = body["data"]["attributes"]
+            windows.append((a["from"], a["to"]))
+            ids = ["x%d" % n for n in range(100)] if len(windows) == 1 else ["x0", "y%d" % len(windows)]
+            return 200, {}, {"data": [result(i) for i in ids], "included": []}
+
+        rows = sources.datadog("service:a", "k", "a", send=send, now=lambda: 1762744100)
+        self.assertEqual(len(windows), 3, "a full first window is split in two halves")
+        self.assertEqual(len({r["src_id"] for r in rows}), len(rows))
+        self.assertEqual(len(rows), 102)
 
 
 class Reopen(unittest.TestCase):

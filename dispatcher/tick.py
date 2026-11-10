@@ -21,6 +21,7 @@ DEFAULT_PROMPT = (
 )
 CLAIM_TIMEOUT = timedelta(minutes=10)
 HEARTBEAT_STALE = timedelta(minutes=30)
+IDLE_CLOSE = timedelta(days=30)
 
 
 def ts(text):
@@ -31,6 +32,25 @@ def labels_of(issue):
     return {label["name"] for label in issue.get("labels", [])}
 
 
+# Comment-derived run state, shared with the Mac mini helper. Claim, run and reopen markers count only from the
+# dispatcher's own login, and only after its latest reopen marker (the current claim generation).
+def mine(item):
+    return (item.get("user") or {}).get("login") == DISPATCHER_LOGIN
+
+
+def current(comments):
+    reopens = [i for i, c in enumerate(comments) if mine(c) and m.parse("reopen", c["body"])]
+    return comments[reopens[-1] + 1:] if reopens else comments
+
+
+def claims_in(comments):
+    return [{**claim, "created_at": c["created_at"]} for c in comments if mine(c) and (claim := m.parse("claim", c["body"]))]
+
+
+def runs_in(comments):
+    return {r["attempt"]: r["cursor_id"] for r in (m.parse("run", c["body"]) for c in comments if mine(c)) if r}
+
+
 class Tick:
     def __init__(self, config, gh, cursor, pull, now, new_id, log=print, reader=None):
         """`config` comes from `dispatcher.__main__.load`. `gh` writes agent-control issues; `reader` (default `gh`)
@@ -38,7 +58,7 @@ class Tick:
         self.config, self.gh, self.cursor, self.pull, self.log = config, gh, cursor, pull, log
         self.reader = reader or gh
         self.now, self.new_id = now, new_id
-        self.ctl, self.me, self.kit = config["control_repo"], DISPATCHER_LOGIN, KIT_CAPS
+        self.ctl, self.kit = config["control_repo"], KIT_CAPS
         self.cost = config["run_cost_usd"]
 
     def run(self):
@@ -49,7 +69,7 @@ class Tick:
         self.active, self.spent = {}, {}
         for issue in self.issues:
             repo = self.repo_of(issue)
-            if issue["state"] == "open" and labels_of(issue) & {m.CLAIMED, m.RUNNING}:
+            if labels_of(issue) & {m.CLAIMED, m.RUNNING}:  # a closed issue's run still runs, so it still counts
                 self.active[repo] = self.active.get(repo, 0) + 1
             if ts(issue["updated_at"]) >= today:
                 claims_today = [c for c in self.claims(issue, since_reopen=False) if ts(c["created_at"]) >= today]
@@ -57,13 +77,27 @@ class Tick:
         self.stale = self.heartbeat_stale()
         self.policies = {}
         for issue in sorted(self.issues, key=lambda i: i["number"]):
-            if issue["state"] == "open" and not labels_of(issue) & m.DONE and self.repo_of(issue) in self.config["repos"]:
+            labels, active = labels_of(issue), labels_of(issue) & {m.CLAIMED, m.RUNNING}
+            if self.repo_of(issue) not in self.config["repos"]:
+                continue
+            if issue["state"] == "open" and not active and self.idle(issue):
+                self.close_idle(issue)
+            elif active or (issue["state"] == "open" and not labels & m.DONE):
                 self.step(issue)
+
+    def idle(self, issue):
+        """No update for 30 days, and its error was not in this tick's pull from a source that answered."""
+        fp = (m.parse("intake", issue.get("body")) or {}).get("fp")
+        return self.now() - ts(issue["updated_at"]) > IDLE_CLOSE and self.repo_of(issue) in self.pulled and fp not in self.seen
+
+    def close_idle(self, issue):
+        self.gh.comment(self.ctl, issue["number"], "Closing: no new event and no active run for 30 days. It reopens if the error comes back.")
+        self.gh.update_issue(self.ctl, issue["number"], state="closed")
 
     # Intake (C3): one issue per fingerprint, reopened when a closed error comes back.
     def intake(self):
-        by_fp = {}
-        self.issues = [i for i in self.issues if self.mine(i)]  # an intake marker counts only in an issue the dispatcher opened
+        by_fp, self.seen, self.pulled = {}, set(), set()
+        self.issues = [i for i in self.issues if mine(i)]  # an intake marker counts only in an issue the dispatcher opened
         for issue in self.issues:
             fields = m.parse("intake", issue.get("body"))
             if fields:
@@ -74,8 +108,10 @@ class Tick:
             except Exception as error:  # one broken source must not stop the tick
                 self.log("Could not read errors for %s: %s" % (repo, error))
                 continue
+            self.pulled.add(repo)
             for row in rows:
                 fp = m.fingerprint(row["source"], row["src_id"])
+                self.seen.add(fp)
                 issue = by_fp.get(fp)
                 if issue is None:
                     by_fp[fp] = issue = self.open_incident(repo, fp, row)
@@ -107,25 +143,17 @@ class Tick:
                         + "\nThis error came back after the issue was closed (last seen %s)." % row["last_seen"])
         issue["labels"] = [{"name": m.INCIDENT}, {"name": m.NEEDS_DECISION}]
 
-    # Comment-derived state. Claim, run and reopen markers count only from the dispatcher's own login.
-    def mine(self, item):
-        return (item.get("user") or {}).get("login") == self.me
-
     def comments(self, issue, since_reopen=True):
         if issue["number"] not in self._comments:
             self._comments[issue["number"]] = self.gh.comments(self.ctl, issue["number"])
         everything = self._comments[issue["number"]]
-        if not since_reopen:
-            return everything
-        reopens = [i for i, c in enumerate(everything) if self.mine(c) and m.parse("reopen", c["body"])]
-        return everything[reopens[-1] + 1:] if reopens else everything
+        return current(everything) if since_reopen else everything
 
     def claims(self, issue, since_reopen=True):
-        return [{**claim, "created_at": c["created_at"]} for c in self.comments(issue, since_reopen)
-                if self.mine(c) and (claim := m.parse("claim", c["body"]))]
+        return claims_in(self.comments(issue, since_reopen))
 
     def runs(self, issue):
-        return {r["attempt"]: r["cursor_id"] for r in (m.parse("run", c["body"]) for c in self.comments(issue) if self.mine(c)) if r}
+        return runs_in(self.comments(issue))
 
     def repo_of(self, issue):
         return (m.parse("intake", issue.get("body")) or {}).get("repo")
@@ -245,9 +273,11 @@ class Tick:
         agent = self.cursor.find(claim["attempt"], not_before)
         if agent:
             return self.record(issue, claim["attempt"], agent)
-        repo = self.repo_of(issue)
+        self.release(issue, self.repo_of(issue))
+        if issue["state"] != "open":
+            self.gh.comment(self.ctl, issue["number"], "Attempt %d never reached Cursor; the issue is closed, so no retry." % len(claims))
+            return
         self.gh.comment(self.ctl, issue["number"], "Attempt %d never reached Cursor; retrying once with a new attempt." % len(claims))
-        self.release(issue, repo)
         self.maybe_start(issue)
 
     def follow(self, issue):

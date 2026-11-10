@@ -17,7 +17,7 @@ import socket
 
 from dispatcher import cursor, github
 from dispatcher import markers as m
-from dispatcher.tick import labels_of
+from dispatcher.tick import claims_in, current, labels_of, runs_in
 
 
 def heartbeat(gh, ctl, issue, accepting=True, open_decisions=0, deciders=("claude", "codex", "opencode")):
@@ -41,10 +41,17 @@ def decide(gh, ctl, issue, action, prompt, model=None):
 
 
 def steer(gh, client, ctl, issue, text):
-    runs = [r for r in (m.parse("run", c["body"]) for c in gh.comments(ctl, issue)) if r]
-    if not runs:
-        raise SystemExit("Issue #%d has no Cursor run yet; only the dispatcher starts runs." % issue)
-    return client.steer(runs[-1]["cursor_id"], text)
+    """Send `text` into the active run of the issue's current claim. Refuses anything else, because a steer to an
+    idle agent becomes its next run, and only the dispatcher creates runs (D5, INV-8)."""
+    comments = current(gh.comments(ctl, issue))
+    claims, runs = claims_in(comments), runs_in(comments)
+    if not claims or claims[-1]["attempt"] not in runs:
+        raise SystemExit("Issue #%d has no dispatcher run for its current claim; only the dispatcher starts runs." % issue)
+    cursor_id = runs[claims[-1]["attempt"]]
+    status = client.latest_run(cursor_id)["status"]
+    if status not in cursor.ACTIVE:
+        raise SystemExit("The run for issue #%d is %s, not active; steering it would start a new run." % (issue, status))
+    return client.steer(cursor_id, text)
 
 
 def main(argv=None):

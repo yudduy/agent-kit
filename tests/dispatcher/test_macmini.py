@@ -2,7 +2,8 @@ import unittest
 from unittest import mock
 
 from dispatcher import macmini, markers as m
-from fakes import Clock, FakeGitHub
+from dispatcher.tick import DISPATCHER_LOGIN
+from .fakes import Clock, FakeGitHub
 
 CTL = "yudduy/agent-control"
 
@@ -29,15 +30,51 @@ class MacMiniHelper(unittest.TestCase):
         decision = m.decision(self.gh.comments_[2][0], ["yudduy-mini"])
         self.assertEqual((decision["action"], decision["prompt"]), ("fix", "Fix the null name."))
 
-    def test_steer_targets_the_recorded_run_and_never_creates(self):
+    def dispatcher_says(self, kind, payload):
+        self.gh.comment(CTL, 2, m.json_marker(kind, payload), login=DISPATCHER_LOGIN)
+
+    def client(self, status="RUNNING"):
         client = mock.Mock()
-        with self.assertRaises(SystemExit):
-            macmini.steer(self.gh, client, CTL, 2, "hi")
-        self.gh.comment(CTL, 2, m.json_marker("run", {"attempt": "a", "cursor_id": "bc-a"}), login="github-actions[bot]")
+        client.latest_run.return_value = {"status": status}
+        return client
+
+    def test_steer_follows_up_the_current_claimed_run(self):
+        self.dispatcher_says("claim", {"attempt": "a", "at": "x"})
+        self.dispatcher_says("run", {"attempt": "a", "cursor_id": "bc-a"})
+        client = self.client()
         macmini.steer(self.gh, client, CTL, 2, "Also cover empty names")
         client.steer.assert_called_once_with("bc-a", "Also cover empty names")
         client.create.assert_not_called()
 
+    def test_steer_refuses_without_a_dispatcher_run(self):
+        client = self.client()
+        with self.assertRaises(SystemExit):
+            macmini.steer(self.gh, client, CTL, 2, "hi")
+        self.gh.comment(CTL, 2, m.json_marker("claim", {"attempt": "z", "at": "x"}), login="mallory")
+        self.gh.comment(CTL, 2, m.json_marker("run", {"attempt": "z", "cursor_id": "bc-evil"}), login="mallory")
+        with self.assertRaises(SystemExit):
+            macmini.steer(self.gh, client, CTL, 2, "hi")
+        client.steer.assert_not_called()
+
+    def test_steer_refuses_a_run_from_an_earlier_generation_or_claim(self):
+        self.dispatcher_says("claim", {"attempt": "a", "at": "x"})
+        self.dispatcher_says("run", {"attempt": "a", "cursor_id": "bc-a"})
+        self.dispatcher_says("reopen", {"last_seen": "x"})
+        client = self.client()
+        with self.assertRaises(SystemExit):
+            macmini.steer(self.gh, client, CTL, 2, "hi")
+        self.dispatcher_says("claim", {"attempt": "b", "at": "x"})
+        with self.assertRaises(SystemExit):
+            macmini.steer(self.gh, client, CTL, 2, "hi")  # the new claim has no run yet
+        client.steer.assert_not_called()
+
+    def test_steer_refuses_an_idle_agent_because_that_would_start_a_run(self):
+        self.dispatcher_says("claim", {"attempt": "a", "at": "x"})
+        self.dispatcher_says("run", {"attempt": "a", "cursor_id": "bc-a"})
+        client = self.client("FINISHED")
+        with self.assertRaises(SystemExit):
+            macmini.steer(self.gh, client, CTL, 2, "hi")
+        client.steer.assert_not_called()
 
 if __name__ == "__main__":
     unittest.main()

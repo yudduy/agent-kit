@@ -8,11 +8,14 @@ It reads repo policies with the gate's parser, so it needs `gate/` on the same k
 
 1. If repo variable `AGENT_KIT_PAUSED` is `true`, stop before any API call.
 2. Pull unresolved Sentry issues (`GET /api/0/organizations/{org}/issues/?project=…&statsPeriod=24h`) and Datadog
-   Error Tracking issues (`POST /api/v2/error-tracking/issues/search`) for each registered repo.
+   Error Tracking issues (`POST /api/v2/error-tracking/issues/search`) for each registered repo. Sentry pages follow
+   its `Link` cursor; Datadog returns at most 100 issues with no cursor, so a full window is split in halves. Each
+   source makes at most 10 requests per repo per tick.
 3. Upsert one issue per fingerprint (`fp` = first 16 hex of sha256 of `<source>:<id>`), labelled `agent:incident` and
    `agent:needs-decision`. 50 replays of one error find the same issue. A closed issue whose error is seen again
    after it closed is reopened (that is what makes a false green visible); an ignored one is not.
-4. For each open incident, oldest first:
+4. For each open incident, oldest first (and each closed one whose run is still claimed or running, which keeps
+   counting against the caps until its run ends; a closed claim is reconciled but never retried):
    - `agent:running`: read the Cursor run. Finished with a PR → `agent:pr-open`. Finished without one → its reply is
      posted as the triage and `agent:triaged`. Error, cancelled or expired → a failed attempt.
    - `agent:claimed` with no run line for 10 min: look the attempt up in Cursor's list (INV-8). Found → record it.
@@ -24,6 +27,8 @@ It reads repo policies with the gate's parser, so it needs `gate/` on the same k
    the Cursor agent id is `bc-<attempt>`, so a repeated create returns 409 instead of a second run.
 6. After `max_attempts` failed attempts, or when the daily spend cap is hit: a comment, `agent:needs-human`, and an
    assignment to `escalate_to` (GitHub emails the assignee). Nothing writes to Slack (INV-10).
+7. An open incident with no active run, no update for 30 days, and no event in this tick's pull is closed with a
+   comment. It is not closed when its repo's source could not be read, and it reopens if the error comes back.
 
 Default models come from `models.default`. A decision may name another model; it is used only if it is in
 `models.included` or an approver from the repo's policy added `agent:paid-ok` (checked from the issue's events).
@@ -81,7 +86,9 @@ python3 -m dispatcher.macmini decide 12 fix --prompt-file prompt.md
 CURSOR_API_KEY=… python3 -m dispatcher.macmini steer 12 --text "Also cover the empty-name case"
 ```
 
-The helper never creates runs; only the dispatcher does (D5).
+The helper never creates runs; only the dispatcher does (D5). `steer` follows up only the run recorded by the
+dispatcher for the issue's current claim (after any reopen), and only while that run is active: a steer to an idle
+agent would become its next run. Any other run marker is refused.
 
 ## Cursor
 
