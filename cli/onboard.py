@@ -180,9 +180,9 @@ def bump(checkout, new):
 
 
 def open_bump(repo):
-    """URL of an open `agent-kit/bump-*` PR in the repo, or None."""
-    prs = json.loads(run("gh", "pr", "list", "-R", repo, "--state", "open", "--limit", "1000", "--json", "headRefName,url"))
-    return next((p["url"] for p in prs if p["headRefName"].startswith("agent-kit/bump-")), None)
+    """URL of an open `agent-kit/bump-*` PR from the repo's own branches (not a fork), or None."""
+    prs = json.loads(run("gh", "pr", "list", "-R", repo, "--state", "open", "--limit", "1000", "--json", "headRefName,url,isCrossRepository"))
+    return next((p["url"] for p in prs if p["headRefName"].startswith("agent-kit/bump-") and not p["isCrossRepository"]), None)
 
 
 def sync(repo, ref=None):

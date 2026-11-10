@@ -158,11 +158,14 @@ class Sync(unittest.TestCase):
 
 class OpenBump(unittest.TestCase):
     def test_an_open_bump_pr_is_found_and_sync_skips(self):
-        prs = '[{"headRefName": "cursor/fix-x", "url": "u1"}, {"headRefName": "agent-kit/bump-%s", "url": "u2"}]' % SHA[:12]
+        prs = ('[{"headRefName": "cursor/fix-x", "url": "u1", "isCrossRepository": false}, '
+               '{"headRefName": "agent-kit/bump-%s", "url": "u2", "isCrossRepository": false}]' % SHA[:12])
         with mock.patch.object(onboard, "run", return_value=prs) as gh:
             self.assertEqual(onboard.open_bump("yudduy/shop"), "u2")
         self.assertEqual(gh.call_args[0][:6], ("gh", "pr", "list", "-R", "yudduy/shop", "--state"))
-        for listing in ('[]', '[{"headRefName": "agent-kit/onboard", "url": "u3"}, {"headRefName": "x/agent-kit/bump-1", "url": "u4"}]'):
+        for listing in ('[]', '[{"headRefName": "agent-kit/onboard", "url": "u3", "isCrossRepository": false}, '
+                              '{"headRefName": "x/agent-kit/bump-1", "url": "u4", "isCrossRepository": false}]',
+                        '[{"headRefName": "agent-kit/bump-from-a-fork", "url": "u5", "isCrossRepository": true}]'):
             with mock.patch.object(onboard, "run", return_value=listing):
                 self.assertIsNone(onboard.open_bump("yudduy/shop"))
         out = io.StringIO()
