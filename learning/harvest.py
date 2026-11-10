@@ -236,8 +236,8 @@ def main(argv=None):
     for repo, name in qualified:
         print("- %s %s" % (repo, name))
         if args.propose:
-            from cli.onboard import PSTACK  # the kit's pinned pstack commit
-            from dispatcher import cursor  # the one module that talks to Cursor (D4)
+            from cli.onboard import PSTACK
+            from dispatcher import cursor
             agent = propose(cursor.Client(os.environ["CURSOR_API_KEY"]), repo, name, old + new, PSTACK, args.model)
             print("  learning run: %s" % agent.get("url", agent["id"]))
     return 0

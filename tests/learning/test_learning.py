@@ -122,6 +122,11 @@ class PathCheck(unittest.TestCase):
         self.assertEqual(problems, [])
         self.assertEqual(governance, [".cursor/skills/verify-shop/SKILL.md", "scripts/lint_profile_save.py", ".github/workflows/profile-lint.yml"])
 
+    def test_added_test_hooks_are_not_cases(self):
+        for hook in ("tests/conftest.py", "fixtures/conftest.py", "tests/__init__.py", "playwright.config.ts", "tests/setup.ts"):
+            problems, governance = pathcheck.check(files((hook, "added", "+x")))
+            self.assertEqual((problems, governance), ([], [hook]), hook)
+
     def test_exit_codes(self):
         path = Path(tempfile.mkdtemp()) / "files.jsonl"
         for entries, code in [((("tests/a.spec.ts", "added", "+x"),), 0), ((("src/check.py", "added", "+x"),), 10),
@@ -143,15 +148,20 @@ class FakeGitHubAPI:
         if method == "POST":
             self.posted.append((path, body))
             return {}
-        if path.endswith("/pulls?state=open&per_page=100"):
-            return self.prs
-        if path.endswith("/pulls/7/files?per_page=100"):
-            return [{"filename": ".cursor/skills/verify-shop/SKILL.md", "status": "modified"},
-                    {"filename": "tests/a.spec.ts", "status": "added"}]
+        if path == "/user":
+            return {"login": "agent-kit-judge"}
         if "/contents/" in path:
             text = "OLD: check the toast." if path.endswith("a" * 40) else "NEW: query the profiles row."
             return {"content": base64.b64encode(text.encode()).decode()}
-        if path.endswith("/issues/7/comments?per_page=100"):
+        raise AssertionError(path)
+
+    def pages(self, path):
+        if path.endswith("/pulls?state=open"):
+            return self.prs
+        if path.endswith("/pulls/7/files"):
+            return [{"filename": "src/f%d.py" % i, "status": "added"} for i in range(150)] + [
+                {"filename": ".cursor/skills/verify-shop/SKILL.md", "status": "modified"}]
+        if path.endswith("/issues/7/comments"):
             return self.comments
         raise AssertionError(path)
 
@@ -160,7 +170,7 @@ class Judge(unittest.TestCase):
     def run_judge(self, api, answer):
         prompts = []
         ask = lambda prompt: prompts.append(prompt) or answer(prompt)
-        judge.run(["yudduy/shop"], api, ask, "gpt-judge")
+        judge.run(["yudduy/shop"], api, api.pages, ask, "gpt-judge")
         return prompts
 
     def test_verdict_maps_back_whichever_order_was_shown(self):
@@ -189,8 +199,20 @@ class Judge(unittest.TestCase):
         self.assertTrue(path.endswith("/issues/7/comments"))
         self.assertIn('"verdict":"new"', body["body"])
         self.assertIn("b" * 40, body["body"])
-        api.comments = [{"body": body["body"]}]
+        api.comments = [{"body": body["body"], "user": {"login": "mallory"}}]
+        self.assertEqual(len(self.run_judge(api, prefer_new)), 1, "a copied marker from another login does not count")
+        api.comments = [{"body": body["body"], "user": {"login": "agent-kit-judge"}}]
         self.assertEqual(self.run_judge(api, prefer_new), [])
+
+    def test_malformed_answer_is_recorded_as_unclear(self):
+        api = FakeGitHubAPI()
+        self.run_judge(api, lambda p: '{"better": "A", "reason": }')
+        self.assertIn('"verdict":"unclear"', api.posted[0][1]["body"])
+
+    def test_unknown_proposer_is_not_judged(self):
+        api = FakeGitHubAPI(body="")
+        self.assertEqual(self.run_judge(api, lambda p: "{}"), [])
+        self.assertIn("proposer", api.posted[0][1]["body"])
 
     def test_proposer_from_the_judge_family_is_not_judged(self):
         api = FakeGitHubAPI(body="<!-- agent-kit:learning v1 class:x model:gpt-5 -->")

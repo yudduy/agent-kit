@@ -48,6 +48,8 @@ check: it runs on every PR (so the gate never sees it skipped) and checks only `
 | A deleted or renamed file, an edited existing test or case, `.agent-kit/` (policy, journeys, seed), graders, thresholds, `gate/`, `verify/`, `learning/`, or an existing CI workflow | Fail |
 
 An edit to an existing test fails even if it only adds lines, because one added `return` can switch a test off.
+A new file that runs when a suite loads (`conftest.py`, `__init__.py`, `*.config.*`, setup files) is not a case:
+it can switch existing tests off, so it counts as a higher-level fix and gets the `governance` label.
 
 ## Blind review of skill text
 
@@ -56,4 +58,5 @@ The daily `judge` job in `learn.yml` runs `python3 -m learning.judge`. For each 
 `AGENT_KIT_JUDGE_MODEL`) as Version A and Version B, in an order taken from the head commit, without saying which
 is new. It posts one verdict comment per head commit: new better, old better, tie, or unclear. Proposals run on a
 Cursor model, so the judge is from another family; if the PR's learning marker names an OpenAI model as the
-proposer, the job posts that it needs a judge from another family instead of judging.
+proposer, or names none, the job posts that it cannot pick a judge from another family instead of judging. Only
+its own earlier verdict for the same head commit stops a repeat; a marker copied by anyone else does not.

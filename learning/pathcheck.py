@@ -18,6 +18,8 @@ from pathlib import Path
 NEEDS_HUMAN = [".agent-kit/*", "gate/*", "verify/*", "learning/*", "schemas/*", "*grade*.py", "*grader*", "*threshold*"]
 CASES = ["tests/*", "test/*", "*/tests/*", "*/__tests__/*", "evals/*", "*/evals/*", "*fixtures/*",
          "*.spec.ts", "*.test.ts", "*.spec.js", "*.test.js", "*test_*.py", "*_test.py", "*_test.go"]
+# Files that run when a test suite loads, so a new one can switch existing tests off: never counted as a case.
+HOOKS = ["*conftest.py", "*__init__.py", "*.config.*", "*setup.*", "*setup_*", "*pytest.ini", "*setup.cfg", "*tox.ini"]
 GOVERNANCE = 10
 
 
@@ -30,7 +32,7 @@ def check(files):
     problems, governance = [], []
     for f in files:
         path, status = f["filename"], f["status"]
-        is_case = any(fnmatch(path, p) for p in CASES)
+        is_case = any(fnmatch(path, p) for p in CASES) and not any(fnmatch(path, p) for p in HOOKS)
         if status not in ("added", "modified"):
             problems.append("%s (%s): a learning PR may not delete or rename files" % (path, status))
         elif any(fnmatch(path, p) for p in NEEDS_HUMAN):
