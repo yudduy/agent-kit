@@ -1,3 +1,5 @@
+import contextlib
+import io
 import os
 import shutil
 import socket
@@ -80,8 +82,10 @@ class ObserverEdges(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             url = f"sqlite://{tmp}/db.sqlite"
             observe.load_seed("sqlite", url, SEED)
-            [result] = observe.run_assertions("sqlite", url, [
-                {"id": "w", "sql": "update profiles set name = 'Ada'", "expect": []}])
+            with contextlib.redirect_stdout(io.StringIO()) as log:
+                [result] = observe.run_assertions("sqlite", url, [
+                    {"id": "w", "sql": "update profiles set name = 'Ada'", "expect": []}])
+            self.assertIn("readonly database", log.getvalue())
             self.assertIsNone(result["observed"])
             self.assertEqual(observe.query("sqlite", url, ASSERTION["sql"]), [{"name": "Grace"}])
 
