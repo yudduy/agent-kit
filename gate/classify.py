@@ -8,7 +8,8 @@ PRECEDENCE = FLOOR_CLASSES + ("review", "kit-bump", "docs")
 # Agent instructions and skills are rules, so they are governance (INV-11). `**/X` also matches a root `X`.
 GOVERNANCE_PATHS = (".agent-kit/**", ".github/**", ".cursor/**", ".claude/**", ".agents/**", "CODEOWNERS", "docs/CODEOWNERS",
                     "**/AGENTS.md", "**/CLAUDE.md", "**/SKILL.md", "**/skills/**", "docs/design/**", "**/fixtures/**", "**/evals/**")
-DOCS_PATHS = ("docs/**", "**/*.md")
+DOCS_PATHS = ("**/*.md",)  # markdown only: the auto-merge class must hold nothing that runs (scripts, SQL, conf.py, .mdx)
+LEARNING_BRANCH = "learn/"
 KIT_CALLER_PATHS = (".github/workflows/**", ".agent-kit/policy.yml")
 DESTRUCTIVE_LINE = re.compile(
     r"\b(?-i:DROP|TRUNCATE)\b"  # bare upper-case SQL keywords; lower-case needs SQL context so prose stays docs
@@ -56,7 +57,7 @@ def classify(files, policy, head_ref=""):
     hits = set()
     for entry in files:
         hits |= _file_hits(entry, rules)
-    if head_ref.startswith("learn/"):
+    if head_ref.startswith(LEARNING_BRANCH):
         hits.add("governance")
     ordered = sorted(hits or {"review"}, key=lambda name: (_rank(name), name))
     return ordered[0], ordered

@@ -13,7 +13,18 @@ def cls(*files, policy=POLICY_DICT):
 
 class ClassifyTest(unittest.TestCase):
     def test_docs_only_is_docs(self):
-        self.assertEqual(cls(change("docs/guide.md"), change("README.md"), change("docs/img/a.txt")), ("docs", ["docs"]))
+        self.assertEqual(cls(change("docs/guide.md"), change("README.md"), change("src/NOTES.md")), ("docs", ["docs"]))
+
+    def test_docs_class_is_markdown_only_so_it_never_executes(self):
+        for path in ("docs/run.sh", "docs/schema.sql", "docs/conf.py", "docs/Makefile", "docs/site/app.mdx",
+                     "docs/package.json", "docs/img/a.txt", "docs/x.md.sh"):
+            with self.subTest(path):
+                self.assertEqual(cls(change(path))[0], "review")
+
+    def test_text_in_markdown_is_labelled_but_cannot_run(self):
+        # Multi-line SQL or shell in a .md file stays docs: markdown never executes, so this is not reachable harm.
+        multiline = "@@ -0,0 +3 @@\n+DELETE\n+FROM users\n+rm -r docs \\\n+  -f"
+        self.assertEqual(cls(change("docs/ops.md", patch=multiline))[0], "docs")
 
     def test_governance_paths_inv9_inv12(self):
         for path in (".agent-kit/policy.yml", ".agent-kit/journeys/save-profile.spec.ts", ".github/workflows/ci.yml",
@@ -50,6 +61,7 @@ class ClassifyTest(unittest.TestCase):
         self.assertEqual(cls(change("docs/ops.md", patch="@@ -0,0 +1 @@\n+run DROP TABLE users"))[0], "destructive")
         self.assertEqual(cls(change("scripts/x.sh", patch="@@ -0,0 +1 @@\n+rm -rf /tmp/x"))[0], "destructive")
         self.assertEqual(cls(change("docs/ops.md", patch="@@ -1 +0,0 @@\n-DROP TABLE users"))[0], "docs")
+        self.assertEqual(cls(change("db/cleanup.sql", patch="@@ -0,0 +2 @@\n+DELETE\n+FROM users;"))[0], "review")
 
     def test_destructive_matches_equivalent_syntax(self):
         for line in ("drop table users", "Drop  Table users", "DROP\tTABLE x", "drop index i", "delete from users",
