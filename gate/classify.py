@@ -12,13 +12,15 @@ DOCS_PATHS = ("docs/**", "**/*.md")
 KIT_CALLER_PATHS = (".github/workflows/**", ".agent-kit/policy.yml")
 DESTRUCTIVE_LINE = re.compile(
     r"\b(?-i:DROP|TRUNCATE)\b"  # bare upper-case SQL keywords; lower-case needs SQL context so prose stays docs
-    r"|\bdrop\s+(?:materialized\s+)?(?:table|database|schema|index|view|column|constraint|type|function|trigger|sequence"
-    r"|role|user|policy|extension|domain|owned)\b"
-    r"|\bdrop\s+(?:\w+\s+){1,3}[\w.\"]+\s*(?:cascade|restrict)?\s*;"  # any other `drop <kind> <name>;` statement
+    r"|\bdrop\s+(?:materialized\s+|foreign\s+|event\s+|text\s+search\s+)?(?:access\s+method|aggregate|cast|collation"
+    r"|column|constraint|conversion|data\s+wrapper|database|domain|extension|function|group|index|language|operator"
+    r"|owned|policy|procedure|publication|role|routine|rule|schema|sequence|server|statistics|subscription|table"
+    r"|tablespace|transform|trigger|type|user|view)\b"
     r"|\btruncate\s+(?:table\b|\S+\s*;)"
     r"|\bdelete\s+from\b"
-    # rm with both a recursive and a force flag anywhere in the same command
-    r"|\brm\b(?=[^\n;|&]*\s['\"]?(?:-(?!-)[a-z]*r|--recursive\b))(?=[^\n;|&]*\s['\"]?(?:-(?!-)[a-z]*f|--force\b))",
+    # rm with both a recursive and a force flag in the same command, before any `--` (lines are also scanned unquoted)
+    r"|\brm\b(?=(?:(?!\s--\s)[^\n;|&])*\s(?:-(?!-)[a-z]*r|--recursive\b))"
+    r"(?=(?:(?!\s--\s)[^\n;|&])*\s(?:-(?!-)[a-z]*f|--force\b))",
     re.IGNORECASE,
 )
 KIT_BUMP_LINE = re.compile(
@@ -89,7 +91,8 @@ def _file_hits(entry, rules):
     patch = entry.get("patch")
     added = [line[1:] for line in (patch or "").splitlines() if line.startswith("+")]
     removed = [line[1:] for line in (patch or "").splitlines() if line.startswith("-")]
-    hits = {name for name, _, line_patterns in rules if any(r.search(a) for r in line_patterns for a in added)}
+    scanned = added + [a.replace('"', "").replace("'", "") for a in added]  # shell joins quoted pieces: -"rf" is -rf
+    hits = {name for name, _, line_patterns in rules if any(r.search(a) for r in line_patterns for a in scanned)}
     for path in paths:  # both sides of a rename; a side no class claims is review
         hits |= {name for name, globs, _ in rules if any(glob_matches(g, path) for g in globs)} or {"review"}
     if entry["status"] == "removed":

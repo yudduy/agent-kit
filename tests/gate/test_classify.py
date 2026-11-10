@@ -56,11 +56,13 @@ class ClassifyTest(unittest.TestCase):
                      "DELETE\tFROM x", "truncate table users", "truncate users;", "rm -rf /x", "rm -fr /x", "rm -Rf x",
                      "rm -r -f /x", "rm -f -r /x", "rm --recursive --force /x", "rm -r --force x", "sudo rm  -rf x",
                      "drop role old_role;", "drop materialized view old_view;", "drop policy p on t;", "drop user bob",
-                     "rm \"-rf\" /tmp/x", "rm '-r' '--force' x"):
+                     "rm \"-rf\" /tmp/x", "rm '-r' '--force' x", "drop aggregate total(integer);", "drop cast (text as integer);",
+                     "drop publication old_publication", "rm -\"rf\" x", "rm --\"recursive\" --\"force\" x"):
             with self.subTest(line):
                 self.assertEqual(cls(change("src/x.sh", patch=f"@@ -0,0 +1 @@\n+{line}"))[0], "destructive")
         for line in ("drag and drop the file", "delete the old file", "truncate the text", "rm -f x", "rm -r dir",
-                     "rm --force x", "cp -rf a b", "run: rm x; ls -rf"):
+                     "rm --force x", "cp -rf a b", "run: rm x; ls -rf",
+                     "drag and drop the file;", "rm -- -rf", "rm -f -- -r"):
             with self.subTest(line):
                 self.assertEqual(cls(change("docs/a.md", patch=f"@@ -0,0 +1 @@\n+{line}"))[0], "docs")
 
