@@ -23,7 +23,8 @@ from learning.pathcheck import CASES, HOOKS, load
 
 ASSERTION = re.compile(r"\b(assert\w*|expect\w*|should|require\.\w+|t\.(Error|Fatal)\w*)\b|\.to[A-Z]\w*\(")
 COMMENT = re.compile(r"^\s*(#|//|/?\*)")
-STRING = re.compile(r"""("|'|`)(\\.|(?!\1).)*\1""")
+BLOCK_STRING = re.compile(r"""(\"\"\"|'''|`)[\s\S]*?\1""")
+STRING = re.compile(r"""("|')(\\.|(?!\1)[^\n])*\1""")
 
 
 def cases(files):
@@ -42,7 +43,8 @@ def asserts(lines, jsonl=False):
     if jsonl:
         rows = [l for l in lines if l.strip()]
         return bool(rows) and all(expects(l) for l in rows)
-    return any(ASSERTION.search(STRING.sub('""', l)) for l in lines if not COMMENT.match(l))
+    code = "\n".join(l for l in lines if not COMMENT.match(l))
+    return bool(ASSERTION.search(STRING.sub('""', BLOCK_STRING.sub('""', code))))
 
 
 def expects(line):

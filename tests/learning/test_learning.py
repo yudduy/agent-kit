@@ -284,6 +284,9 @@ class Proof(unittest.TestCase):
 
     def test_assertion_words_inside_strings_do_not_count_and_go_checks_do(self):
         self.assertFalse(proof.asserts(['print("expected")', "log('should work')"]))
+        self.assertFalse(proof.asserts(['message = """', "expected", '"""']))
+        self.assertFalse(proof.asserts(["const m = `", "should", "`;"]))
+        self.assertTrue(proof.asserts(['doc = """x"""', "assert save()"]))
         self.assertTrue(proof.asserts(['\tt.Fatalf("bad value")']))
         self.assertTrue(proof.asserts(["    require.Equal(t, 1, got)"]))
         self.assertTrue(proof.asserts(['{"input": "Ada", "expected": "Ada"}'], jsonl=True))
