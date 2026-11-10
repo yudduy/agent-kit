@@ -1,0 +1,30 @@
+[
+  {"number": 12, "title": "Fix profile save", "url": "https://github.com/yudduy/shop/pull/12",
+   "body": "Fixes yudduy/agent-control#3\nagent-kit fp:3f9a1c0d7e2b4a65", "mergedAt": "2026-11-02T10:00:00Z",
+   "headRefName": "cursor/fix-profile-save-a1b2", "author": {"login": "cursor", "__typename": "Bot"},
+   "userContentEdits": {"nodes": [
+     {"editedAt": "2026-11-02T08:00:00Z", "editor": {"login": "cursor", "__typename": "Bot"}, "diff": "## Summary\nRefactored saveProfile handler."},
+     {"editedAt": "2026-11-02T09:00:00Z", "editor": {"login": "yudduy", "__typename": "User"}, "diff": "## Summary\n**Before:** saving a profile lost the name."}]},
+   "comments": {"nodes": [
+     {"author": {"login": "cursor", "__typename": "Bot"}, "body": "I added a regression test.", "url": "https://github.com/yudduy/shop/pull/12#issuecomment-1", "createdAt": "2026-11-02T08:10:00Z"},
+     {"author": {"login": "coderabbitai[bot]", "__typename": "Bot"}, "body": "The test does not assert the database row.", "url": "https://github.com/yudduy/shop/pull/12#issuecomment-2", "createdAt": "2026-11-02T08:20:00Z"}]},
+   "reviews": {"nodes": [
+     {"author": {"login": "yudduy", "__typename": "User"}, "body": "The spec only checks the toast; assert the row was saved in the database.",
+      "url": "https://github.com/yudduy/shop/pull/12#pullrequestreview-1", "createdAt": "2026-11-02T09:30:00Z", "comments": {"nodes": []}},
+     {"author": {"login": "yudduy", "__typename": "User"}, "body": "LGTM", "url": "https://github.com/yudduy/shop/pull/12#pullrequestreview-2", "createdAt": "2026-11-02T09:40:00Z", "comments": {"nodes": []}}]},
+   "commits": {"nodes": [{"commit": {"oid": "1111111111111111111111111111111111111111", "checkSuites": {"nodes": [{"checkRuns": {"nodes": [
+     {"conclusion": "SUCCESS", "summary": "ok", "url": "https://github.com/yudduy/shop/runs/1", "completedAt": "2026-11-02T09:50:00Z"}]}}]}}}]}},
+  {"number": 15, "title": "Fix avatar upload", "url": "https://github.com/yudduy/shop/pull/15",
+   "body": "agent-kit fp:0000000000000000", "mergedAt": "2026-11-04T10:00:00Z",
+   "headRefName": "cursor/fix-avatar-c3d4", "author": {"login": "cursor", "__typename": "Bot"},
+   "userContentEdits": {"nodes": []}, "comments": {"nodes": []},
+   "reviews": {"nodes": [
+     {"author": {"login": "yudduy", "__typename": "User"}, "body": "The UI says saved but nothing is stored; add a data assertion.",
+      "url": "https://github.com/yudduy/shop/pull/15#pullrequestreview-3", "createdAt": "2026-11-04T09:30:00Z", "comments": {"nodes": []}}]},
+   "commits": {"nodes": [{"commit": {"oid": "2222222222222222222222222222222222222222", "checkSuites": {"nodes": [{"checkRuns": {"nodes": [
+     {"conclusion": "FAILURE", "summary": "Evidence mismatch\n```json\n{\"v\": 1, \"reasons\": [\"journey save-profile data assertion name-persisted failed\"]}\n```", "url": "https://github.com/yudduy/shop/runs/2", "completedAt": "2026-11-04T08:00:00Z"}]}}]}}}]}},
+  {"number": 16, "title": "Revert \"Fix profile save\"", "url": "https://github.com/yudduy/shop/pull/16",
+   "body": "Reverts yudduy/shop#12", "mergedAt": "2026-11-05T10:00:00Z", "headRefName": "revert-12",
+   "author": {"login": "yudduy", "__typename": "User"}, "userContentEdits": {"nodes": []}, "comments": {"nodes": []},
+   "reviews": {"nodes": []}, "commits": {"nodes": []}}
+]
