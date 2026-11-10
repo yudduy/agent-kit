@@ -86,7 +86,8 @@ class TickTest(unittest.TestCase):
         callers = ("    uses: yudduy/agent-kit/.github/workflows/verify.yml@" + "9" * 40 + "\n",
                    '  other:\n    "uses": yudduy/agent-kit/.github/workflows/verify.yml@main\n',
                    "  other:\n    uses: 'YudDuy/Agent-Kit/.github/workflows/verify.yml@main'\n",
-                   "  other:\n    uses: yudduy/agent-kit/.github/workflows/verify.yml@" + "a" * 40 + ",other\n")
+                   "  other:\n    uses: yudduy/agent-kit/.github/workflows/verify.yml@" + "a" * 40 + ",other\n",
+                   "  other:\n    uses: yudduy/agent-kit/.github/workflows/verify.yml@" + "a" * 40 + "#other\n")
         for caller in callers:
             with self.subTest(caller):
                 fixture = Fixture(FIXTURE)
