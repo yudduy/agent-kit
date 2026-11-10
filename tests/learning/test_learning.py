@@ -287,6 +287,8 @@ class Proof(unittest.TestCase):
         self.assertFalse(proof.asserts(['message = """', "expected", '"""']))
         self.assertFalse(proof.asserts(["const m = `", "should", "`;"]))
         self.assertTrue(proof.asserts(['doc = """x"""', "assert save()"]))
+        self.assertTrue(proof.asserts(['x = "`"', "assert True", 'y = "`"']))
+        self.assertFalse(proof.asserts(["const message = `hello \\` expect nope`;"]))
         self.assertTrue(proof.asserts(['\tt.Fatalf("bad value")']))
         self.assertTrue(proof.asserts(["    require.Equal(t, 1, got)"]))
         self.assertTrue(proof.asserts(['{"input": "Ada", "expected": "Ada"}'], jsonl=True))

@@ -23,8 +23,8 @@ from learning.pathcheck import CASES, HOOKS, load
 
 ASSERTION = re.compile(r"\b(assert\w*|expect\w*|should|require\.\w+|t\.(Error|Fatal)\w*)\b|\.to[A-Z]\w*\(")
 COMMENT = re.compile(r"^\s*(#|//|/?\*)")
-BLOCK_STRING = re.compile(r"""(\"\"\"|'''|`)[\s\S]*?\1""")
-STRING = re.compile(r"""("|')(\\.|(?!\1)[^\n])*\1""")
+# String literals, matched left to right: triple-quoted and backtick strings may span lines, quoted strings may not.
+STRING = re.compile(r'''"""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\'|`(\\[\s\S]|[^`\\])*`|"(\\.|[^"\\\n])*"|'(\\.|[^'\\\n])*\'''')
 
 
 def cases(files):
@@ -44,7 +44,7 @@ def asserts(lines, jsonl=False):
         rows = [l for l in lines if l.strip()]
         return bool(rows) and all(expects(l) for l in rows)
     code = "\n".join(l for l in lines if not COMMENT.match(l))
-    return bool(ASSERTION.search(STRING.sub('""', BLOCK_STRING.sub('""', code))))
+    return bool(ASSERTION.search(STRING.sub('""', code)))
 
 
 def expects(line):
