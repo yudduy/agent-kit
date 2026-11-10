@@ -58,23 +58,26 @@ def prove(files, base, head, case_cmd, suite_cmd, setup=None, timeout=900):
     if not found:
         print("FAIL the PR adds no test or eval case, so nothing proves the change")
         return False, counts
-    for tree in (base, head):
+    runnable = []
+    for path, added in found:
+        if asserts(added):
+            runnable.append(path)
+            (base / path).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(head / path, base / path)
+        else:
+            counts["no_assertion"] += 1
+            print("FAIL %s: its added lines hold no assertion" % path)
+    # Every base run ends before head setup or head runs start, so code only on head cannot change the base results.
+    for tree, key, want in ((base, "failed_on_base", False), (head, "passed_on_head", True)):
         if setup and sh(setup, tree, timeout) != 0:
             print("FAIL setup failed in %s" % tree.name)
             return False, counts
-    for path, added in found:
-        if not asserts(added):
-            counts["no_assertion"] += 1
-            print("FAIL %s: its added lines hold no assertion" % path)
-            continue
-        (base / path).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(head / path, base / path)
-        command = case_cmd.replace("{case}", shlex.quote(path))
-        on_base, on_head = sh(command, base, timeout), sh(command, head, timeout)
-        counts["failed_on_base"] += on_base not in (0, None)
-        counts["passed_on_head"] += on_head == 0
-        print("%s %s: base %s, head %s" % ("OK" if on_base not in (0, None) and on_head == 0 else "FAIL", path,
-                                          "fails" if on_base not in (0, None) else "passes or hangs", "passes" if on_head == 0 else "fails"))
+        for path in runnable:
+            code = sh(case_cmd.replace("{case}", shlex.quote(path)), tree, timeout)
+            good = code == 0 if want else code not in (0, None)
+            counts[key] += good
+            print("%s %s on %s: %s" % ("OK" if good else "FAIL", path, tree.name,
+                                       "timed out" if code is None else "passes" if code == 0 else "fails"))
     counts["suite"] = "pass" if sh(suite_cmd, head, timeout) == 0 else "fail"
     n = counts["cases"]
     ok = counts["failed_on_base"] == n and counts["passed_on_head"] == n and counts["suite"] == "pass"
