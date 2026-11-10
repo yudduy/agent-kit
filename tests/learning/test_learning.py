@@ -306,7 +306,9 @@ class Proof(unittest.TestCase):
         self.assertEqual(pathcheck.check(files(("test_save_case.py", "added", ""))), ([], []), "the path check alone passes it")
         for case in ("", "import app\n", "import app\n# assert app.save('Ada')\n",
                      'import app\n\n\ndef test_save():\n    print("expected", app.save("Ada"))\n'):
-            self.assertFalse(prove_case(case)[0], repr(case))
+            ok, counts = prove_case(case)
+            self.assertFalse(ok, repr(case))
+            self.assertEqual(counts["no_assertion"], int("def test" in case), repr(case))
         ok, counts = prove_case('import app\n\n\ndef test_save():\n    if app.save("Ada") != "Ada":\n        assert False, "expected Ada"\n')
         self.assertFalse(ok)
         self.assertEqual((counts["failed_on_base"], counts["no_assertion"]), (1, 1))

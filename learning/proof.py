@@ -29,6 +29,7 @@ from pathlib import Path
 from learning.pathcheck import CASES, HOOKS, load
 
 PLUGIN = Path(__file__).with_name("pytest_plugin")
+NO_ASSERTION = "passes without executing an assertion"
 
 
 def cases(files):
@@ -76,7 +77,7 @@ def verdict(code, result, on_base):
         return ""
     if not outcomes or set(outcomes) != {"passed"} or code != 0:
         return "does not pass (outcomes: %s)" % (", ".join(outcomes) or "no tests")
-    return "" if result["assertions"] else "passes without executing an assertion"
+    return "" if result["assertions"] else NO_ASSERTION
 
 
 def prove(files, base, head, case_cmd, suite_cmd, setup=None, timeout=900):
@@ -101,8 +102,7 @@ def prove(files, base, head, case_cmd, suite_cmd, setup=None, timeout=900):
             code, result = run_case(case_cmd.replace("{case}", shlex.quote(path)), tree, timeout)
             reason = verdict(code, result, on_base)
             counts[key] += not reason
-            if not on_base and result and not result["assertions"]:
-                counts["no_assertion"] += 1
+            counts["no_assertion"] += reason == NO_ASSERTION
             print("%s %s on %s%s" % ("FAIL" if reason else "OK", path, tree.name, ": " + reason if reason else ""))
     counts["suite"] = "pass" if sh(suite_cmd, head, timeout) == 0 else "fail"
     n = counts["cases"]
