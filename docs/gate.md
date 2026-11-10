@@ -92,6 +92,7 @@ While paused the gate still posts verdicts, but every check is `failure` with th
 - Repo classes match by `paths` (globs, `**` crosses folders) and/or `added_lines` (Python regexes on added lines).
 - The kit floor is hard-coded in `gate/policy.py` and `gate/classify.py`; `floor_extra` can only add paths. Governance always covers `.agent-kit/**`, `.github/**`, `.cursor/**`, `.claude/**`, `.agents/**`, `CODEOWNERS`, `docs/CODEOWNERS`, every `AGENTS.md`, `CLAUDE.md` and `SKILL.md`, any `skills/`, `fixtures/` or `evals/` folder, `docs/design/**`, the policy's seed file and journey specs (INV-9, INV-11, INV-12). `docs/features/**` stays `docs`. The `docs` class is markdown files only (`**/*.md` outside governance), so nothing that auto-merges can run; other files under `docs/` are `review`.
 - A pull request from a `learn/*` branch is always `governance` (INV-11) and also needs a successful `learning-proof` check run from `github-actions` (INV-13). The gate never reads labels, since agents with an issues token can change them. Add other grader or fixture paths with `floor_extra: {governance: {paths: [...]}}`.
+- Every path and glob in the policy (seed, journey specs and areas, class and `floor_extra` paths, `verify.regress_glob`) is read in canonical form: `./`, `//` and `.` segments are dropped, and a path with `..`, a leading `/` or a `\` makes the policy invalid, so the gate fails.
 - Renames count both paths: moving a file out of a class still counts as touching it.
 
 ## Run locally
