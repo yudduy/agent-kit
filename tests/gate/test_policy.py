@@ -99,6 +99,8 @@ class MiniYamlTest(unittest.TestCase):
         self.assertEqual(miniyaml.loads('a: "back\\\\" # c\n'), {"a": "back\\"})
         self.assertEqual(miniyaml.loads('build: echo \\"x\\" # comment\n'), {"build": 'echo \\"x\\"'})
         self.assertEqual(miniyaml.loads("a: it's fine # c\nb: ['x', \"y\"] # c\n"), {"a": "it's fine", "b": ["x", "y"]})
+        self.assertEqual(miniyaml.loads('a: echo "hello # c\nb: x, "y # c\nc: x[1] "z # c\n'), {"a": 'echo "hello', "b": 'x, "y', "c": 'x[1] "z'})
+        self.assertEqual(miniyaml.loads('- "a # b"  # c\n- {k: "v # w", l: [1, \'m # n\']}  # c\n'), ["a # b", {"k": "v # w", "l": [1, "m # n"]}])
 
     def test_rejects_unsupported_yaml(self):
         for text in ("a: &x 1\nb: *x\n", "a: |\n  text\n", "a: !tag x\n", "a: 1\na: 2\n", "a:\n\tb: 1\n", "a: [1,\n  2]\n", "a: 1\n---\nb: 2\n"):

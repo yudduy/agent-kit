@@ -43,19 +43,29 @@ def loads(text):
 
 
 def _strip_comment(line):
-    quote, escaped = None, False
+    """Cut a `#` comment. Quotes open a quoted value only where a value starts, as in YAML."""
+    quote, escaped, depth, prev, prev_i = None, False, 0, None, -1
+    first = len(line) - len(line.lstrip())
     for i, ch in enumerate(line):
-        if escaped:
-            escaped = False
-        elif quote:
-            if ch == "\\" and quote == '"':
+        if quote:
+            if escaped:
+                escaped = False
+            elif ch == "\\" and quote == '"':
                 escaped = True
             elif ch == quote:
-                quote = None
-        elif ch in "\"'" and (i == 0 or line[i - 1] in " \t[{,"):  # mid-value quotes are literal
-            quote = ch
-        elif ch == "#" and (i == 0 or line[i - 1] in " \t"):
+                quote, prev, prev_i = None, ch, i
+            continue
+        if ch == "#" and (i == 0 or line[i - 1] in " \t"):
             return line[:i]
+        value_start = prev is None or prev == ":" or (prev == "-" and prev_i == first) or (depth and prev in "[{,")
+        if ch in "\"'" and value_start:
+            quote = ch
+        elif ch in "[{" and value_start:
+            depth += 1
+        elif ch in "]}" and depth:
+            depth -= 1
+        if ch not in " \t":
+            prev, prev_i = ch, i
     return line
 
 
