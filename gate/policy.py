@@ -26,13 +26,33 @@ def parse(text):
     problems = _validate(policy, SCHEMA, "policy")
     if problems:
         raise PolicyError(f"policy.yml breaks the v1 schema: {problems[0]}")
-    for name, rule in [*policy.get("classes", {}).items(), *policy.get("floor_extra", {}).items()]:
+    rules = [*policy.get("classes", {}).items(), *policy.get("floor_extra", {}).items()]
+    for name, rule in rules:
         for pattern in rule.get("added_lines", []):
             try:
                 re.compile(pattern)
             except re.error as error:
                 raise PolicyError(f"policy.yml class {name}: bad regex {pattern!r}: {error}") from None
+    # Compare-API paths are canonical, so every declared path must be too, or `./x` would dodge a rule on `x`.
+    db = policy["app"]["db"]
+    db["seed"] = normalize_path(db["seed"])
+    for journey in policy["journeys"]:
+        journey["spec"] = normalize_path(journey["spec"])
+        journey["areas"] = [normalize_path(area) for area in journey["areas"]]
+    for _, rule in rules:
+        if "paths" in rule:
+            rule["paths"] = [normalize_path(glob) for glob in rule["paths"]]
+    if "regress_glob" in policy.get("verify", {}):
+        policy["verify"]["regress_glob"] = normalize_path(policy["verify"]["regress_glob"])
     return policy
+
+
+def normalize_path(path):
+    """A repo-relative path or glob in canonical form: no `./`, `//` or `.` segments. `..`, absolute or `\\` fail."""
+    segments = [s for s in path.split("/") if s not in ("", ".")]
+    if path.startswith("/") or "\\" in path or ".." in segments or not segments:
+        raise PolicyError(f"policy.yml path {path!r} must stay inside the repo (no leading /, .., or \\)")
+    return "/".join(segments)
 
 
 _TYPES = {

@@ -57,6 +57,18 @@ class DecideTest(unittest.TestCase):
                          ("success", {"test (github-actions)": "success", "learning-proof (github-actions)": "success"}))
         self.assertNotIn("learning-proof (github-actions)", gate(facts())["required_checks"])
 
+    def test_policy_paths_are_normalized_before_classifying(self):
+        seed_edit = [change("docs/seed.md", patch="@@ -1 +1 @@\n-INSERT INTO t VALUES (1)\n+INSERT INTO t VALUES (2)")]
+        for seed in ("docs/seed.md", "./docs/seed.md", "docs//seed.md", "docs/./seed.md", ".//docs/seed.md"):
+            with self.subTest(seed):
+                record = gate(facts(files=seed_edit, policy_text=POLICY.replace("seed: db/seed.sql", f"seed: {seed}")))
+                self.assertEqual(record["class"], "governance")
+                self.assertBlocked(record, "class governance needs a human approval")
+        areas = POLICY.replace('areas: ["src/profile/**"]', 'areas: ["./src//profile/**"]')
+        record = gate(facts(files=[change("src/profile/save.ts")], reviews=[review("alice")], policy_text=areas,
+                            edit=lambda d: d.__setitem__("scenarios", [])))
+        self.assertBlocked(record, "journey save-profile did not pass")
+
     def test_skill_or_agents_edit_is_governance(self):
         for path in ("skills/verify-app/SKILL.md", "AGENTS.md"):
             with self.subTest(path):

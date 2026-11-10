@@ -72,6 +72,30 @@ class PolicyTest(unittest.TestCase):
             with self.subTest(caps), self.assertRaises(PolicyError):
                 parse(POLICY + f"caps: {caps}\n")
 
+    def test_policy_paths_are_normalized(self):
+        text = (POLICY.replace("seed: db/seed.sql", "seed: ./db//seed.sql")
+                .replace("spec: .agent-kit/journeys/save-profile.spec.ts", "spec: ./.agent-kit/./journeys/save-profile.spec.ts")
+                .replace('areas: ["src/profile/**"]', 'areas: ["./src/profile/**"]')
+                .replace('migrations: {paths: ["db/migrations/**"]}', 'migrations: {paths: ["./db/migrations//**"]}')
+                + 'classes:\n  billing-ui: {paths: ["./src/billing/**"], floor: payments}\nverify: {regress_glob: "./tests/regress/*.spec.ts"}\n')
+        policy = parse(text)
+        self.assertEqual(policy["app"]["db"]["seed"], "db/seed.sql")
+        self.assertEqual(policy["journeys"][0]["spec"], ".agent-kit/journeys/save-profile.spec.ts")
+        self.assertEqual(policy["journeys"][0]["areas"], ["src/profile/**"])
+        self.assertEqual(policy["floor_extra"]["migrations"]["paths"], ["db/migrations/**"])
+        self.assertEqual(policy["classes"]["billing-ui"]["paths"], ["src/billing/**"])
+        self.assertEqual(policy["verify"]["regress_glob"], "tests/regress/*.spec.ts")
+
+    def test_escaping_or_absolute_policy_paths_fail_closed(self):
+        for bad in ("../seed.sql", "db/../../seed.sql", "db/../seed.sql", "/etc/seed.sql", "./", ".", "db\\\\seed.sql"):
+            with self.subTest(bad), self.assertRaises(PolicyError):
+                parse(POLICY.replace("seed: db/seed.sql", f'seed: "{bad}"'))
+        for text in (POLICY.replace('areas: ["src/profile/**"]', 'areas: ["../src/**"]'),
+                     POLICY + 'classes:\n  x: {paths: ["/src/**"]}\n',
+                     POLICY + 'verify: {regress_glob: "../tests/*.spec.ts"}\n'):
+            with self.subTest(text[-40:]), self.assertRaises(PolicyError):
+                parse(text)
+
     def test_required_checks_name_their_app(self):
         for checks in ("[test]", "[{name: test}]", "[{name: test, app: Bad_App}]"):
             with self.subTest(checks), self.assertRaises(PolicyError):
