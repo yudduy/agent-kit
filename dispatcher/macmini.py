@@ -17,7 +17,7 @@ import socket
 
 from dispatcher import github
 from dispatcher import markers as m
-from dispatcher.tick import labels_of
+from dispatcher.tick import current, mine, state
 
 
 def heartbeat(gh, ctl, issue, accepting=True, open_decisions=0, deciders=("claude", "codex", "opencode")):
@@ -30,9 +30,18 @@ def heartbeat(gh, ctl, issue, accepting=True, open_decisions=0, deciders=("claud
 
 
 def pending(gh, ctl):
-    """Open incidents waiting for a decision."""
-    return [i for i in gh.issues(ctl, m.NEEDS_DECISION)
-            if not labels_of(i) & {m.DECIDED, m.IGNORED, *m.DISPATCHER_LABELS}]
+    """Open incidents the dispatcher opened that wait for a decision, read from markers only (labels are display):
+    no claim open or finished in the current generation, no escalation, and no decision from this login."""
+    me, waiting = gh.whoami(), []
+    for issue in gh.issues(ctl, state="open"):
+        if "pull_request" in issue or not mine(issue) or not m.lead("intake", issue.get("body")):
+            continue
+        comments = current(gh.comments(ctl, issue["number"]))
+        st = state(comments)
+        decided = any(m.decision(c, [me]) for c in comments)
+        if st["phase"] == "idle" and st["outcome"] not in ("pr", "triage") and not st["escalated"] and not decided:
+            waiting.append(issue)
+    return waiting
 
 
 def decide(gh, ctl, issue, action, prompt, model=None):

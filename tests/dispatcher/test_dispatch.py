@@ -306,6 +306,19 @@ class Config(unittest.TestCase):
             load(root, CTL)
 
 
+class Providers(unittest.TestCase):
+    def test_a_failing_provider_keeps_the_others_rows_and_marks_the_read_incomplete(self):
+        from dispatcher import __main__ as entry
+        row = sources.sentry("acme", "shop", "t", send=sentry_row())
+        settings = {"sentry": {"org": "acme", "project": "shop"}, "datadog": {"query": "service:shop"}}
+        env = {"SENTRY_TOKEN": "t", "DATADOG_API_KEY": "k", "DATADOG_APP_KEY": "a"}
+        with mock.patch.dict(os.environ, env), mock.patch.object(entry.sources, "sentry", return_value=row), \
+                mock.patch.object(entry.sources, "datadog", side_effect=RuntimeError("Datadog returned 503")):
+            rows = entry.pull("yudduy/shop", settings)
+        self.assertEqual([r["src_id"] for r in rows], ["4512345678"])
+        self.assertFalse(rows.complete)
+
+
 class Paused(unittest.TestCase):
     def test_paused_does_nothing(self):
         with mock.patch.dict(os.environ, {"AGENT_KIT_PAUSED": "true"}), \

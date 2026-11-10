@@ -10,7 +10,8 @@ It reads repo policies with the gate's parser, so it needs `gate/` on the same k
 2. Pull unresolved Sentry issues (`GET /api/0/organizations/{org}/issues/?project=…&statsPeriod=24h`) and Datadog
    Error Tracking issues (`POST /api/v2/error-tracking/issues/search`) for each registered repo. Sentry pages follow
    its `Link` cursor; Datadog returns at most 100 issues with no cursor, so a full window is split in halves. Each
-   source makes at most 10 requests per repo per tick.
+   source makes at most 10 requests per repo per tick. A provider that fails is skipped and the repo's read counts
+   as incomplete; the other providers' errors are still taken in.
 3. Upsert one issue per fingerprint (`fp` = first 16 hex of sha256 of `<source>:<id>`), labelled `agent:incident` and
    `agent:needs-decision`. 50 replays of one error find the same issue. A closed issue whose error is seen again
    after it closed is reopened (that is what makes a false green visible); an ignored one is not.
@@ -83,7 +84,7 @@ Run from a kit checkout with a fine-grained token that has only Issues read/writ
 ```sh
 export AGENT_KIT_CONTROL_REPO=yudduy/agent-control AGENT_KIT_HEARTBEAT_ISSUE=1 GITHUB_TOKEN=…
 python3 -m dispatcher.macmini heartbeat                    # every 5 min; edits its own comment in place
-python3 -m dispatcher.macmini pending                      # incidents waiting for a decision
+python3 -m dispatcher.macmini pending                      # incidents waiting for a decision (from markers, not labels)
 python3 -m dispatcher.macmini decide 12 fix --prompt-file prompt.md
 python3 -m dispatcher.macmini steer 12 --text "Also cover the empty-name case"
 ```

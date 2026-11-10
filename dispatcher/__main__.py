@@ -12,13 +12,25 @@ from dispatcher.tick import Tick
 
 
 def pull(repo, settings):
-    reads = []
+    """Rows from every configured provider. A provider that fails is logged and makes the read incomplete,
+    so the other providers' rows still count and no incident is idle-closed on a partial read."""
+    readers = []
     if "sentry" in settings:
-        reads.append(sources.sentry(settings["sentry"]["org"], settings["sentry"]["project"], os.environ["SENTRY_TOKEN"]))
+        readers.append(("Sentry", lambda: sources.sentry(settings["sentry"]["org"], settings["sentry"]["project"], os.environ["SENTRY_TOKEN"])))
     if "datadog" in settings:
-        reads.append(sources.datadog(settings["datadog"]["query"], os.environ["DATADOG_API_KEY"], os.environ["DATADOG_APP_KEY"],
-                                     settings["datadog"].get("site", "datadoghq.com")))
-    return sources.Rows([r for rows in reads for r in rows], complete=all(rows.complete for rows in reads))
+        readers.append(("Datadog", lambda: sources.datadog(settings["datadog"]["query"], os.environ["DATADOG_API_KEY"],
+                                                           os.environ["DATADOG_APP_KEY"], settings["datadog"].get("site", "datadoghq.com"))))
+    rows = sources.Rows()
+    for name, read in readers:
+        try:
+            found = read()
+        except Exception as error:  # one provider down must not hide the others
+            print("Could not read %s errors for %s: %s" % (name, repo, error))
+            rows.complete = False
+            continue
+        rows += found
+        rows.complete = rows.complete and found.complete
+    return rows
 
 
 def load(control, control_repo):
