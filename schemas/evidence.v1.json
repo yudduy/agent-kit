@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/yudduy/agent-kit/schemas/evidence.v1.json",
+  "title": "agent-kit evidence v1 (design record contract C2)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "repo", "pr", "head_sha", "base_sha", "kit_ref", "policy_sha", "journeys_sha",
+               "run", "env", "scenarios", "regression", "artifacts", "result"],
+  "properties": {
+    "schema": {"const": 1},
+    "repo": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"},
+    "pr": {"type": "integer", "minimum": 1},
+    "head_sha": {"$ref": "#/$defs/git_sha"},
+    "base_sha": {"$ref": "#/$defs/git_sha"},
+    "kit_ref": {"$ref": "#/$defs/git_sha"},
+    "policy_sha": {"$ref": "#/$defs/git_sha"},
+    "journeys_sha": {"anyOf": [{"$ref": "#/$defs/git_sha"}, {"type": "null"}]},
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "attempt", "workflow_ref"],
+      "properties": {
+        "id": {"type": "integer", "minimum": 0},
+        "attempt": {"type": "integer", "minimum": 1},
+        "workflow_ref": {"type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/\\.github/workflows/[^@]+@[0-9a-f]{40}$"}
+      }
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runner_image", "app_image_digest", "db_image_digest", "seed_hash"],
+      "properties": {
+        "runner_image": {"type": "string", "minLength": 1},
+        "app_image_digest": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
+        "db_image_digest": {"type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$"},
+        "seed_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    },
+    "scenarios": {"type": "array", "items": {"$ref": "#/$defs/scenario"}},
+    "regression": {"type": "array", "items": {"$ref": "#/$defs/regression"}},
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "sha256"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "sha256": {"$ref": "#/$defs/sha256_hex"}
+        }
+      }
+    },
+    "result": {"enum": ["pass", "fail"]}
+  },
+  "$defs": {
+    "git_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "sha256_hex": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "rows": {"type": "array", "items": {"type": "object"}},
+    "scenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "source", "ui_result", "data_assertions", "result", "trace"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "source": {"const": "base"},
+        "ui_result": {"enum": ["pass", "fail"]},
+        "data_assertions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "sql_sha256", "expected", "observed", "pass"],
+            "properties": {
+              "id": {"type": "string", "minLength": 1},
+              "sql_sha256": {"$ref": "#/$defs/sha256_hex"},
+              "expected": {"$ref": "#/$defs/rows"},
+              "observed": {"anyOf": [{"$ref": "#/$defs/rows"}, {"type": "null"}]},
+              "pass": {"type": "boolean"}
+            }
+          }
+        },
+        "result": {"enum": ["pass", "fail"]},
+        "trace": {"type": ["string", "null"]}
+      }
+    },
+    "regression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "spec", "trusted", "fail_on_base", "pass_on_head"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "spec": {"type": "string", "minLength": 1},
+        "trusted": {"const": false},
+        "fail_on_base": {"type": "boolean"},
+        "pass_on_head": {"type": "boolean"}
+      }
+    }
+  }
+}

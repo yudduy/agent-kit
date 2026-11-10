@@ -1,0 +1,15 @@
+# Added by `gh agent-kit init`. Runs the kit's verify workflow on every PR.
+# The ref is a full kit commit SHA and must equal `kit_ref` in .agent-kit/policy.yml.
+name: agent-verify
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  id-token: write
+  attestations: write
+
+jobs:
+  verify:
+    uses: yudduy/agent-kit/.github/workflows/verify.yml@{{KIT_REF}}
