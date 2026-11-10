@@ -54,7 +54,9 @@ class ClassifyTest(unittest.TestCase):
     def test_destructive_matches_equivalent_syntax(self):
         for line in ("drop table users", "Drop  Table users", "DROP\tTABLE x", "drop index i", "delete from users",
                      "DELETE\tFROM x", "truncate table users", "truncate users;", "rm -rf /x", "rm -fr /x", "rm -Rf x",
-                     "rm -r -f /x", "rm -f -r /x", "rm --recursive --force /x", "rm -r --force x", "sudo rm  -rf x"):
+                     "rm -r -f /x", "rm -f -r /x", "rm --recursive --force /x", "rm -r --force x", "sudo rm  -rf x",
+                     "drop role old_role;", "drop materialized view old_view;", "drop policy p on t;", "drop user bob",
+                     "rm \"-rf\" /tmp/x", "rm '-r' '--force' x"):
             with self.subTest(line):
                 self.assertEqual(cls(change("src/x.sh", patch=f"@@ -0,0 +1 @@\n+{line}"))[0], "destructive")
         for line in ("drag and drop the file", "delete the old file", "truncate the text", "rm -f x", "rm -r dir",

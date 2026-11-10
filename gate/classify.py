@@ -12,11 +12,13 @@ DOCS_PATHS = ("docs/**", "**/*.md")
 KIT_CALLER_PATHS = (".github/workflows/**", ".agent-kit/policy.yml")
 DESTRUCTIVE_LINE = re.compile(
     r"\b(?-i:DROP|TRUNCATE)\b"  # bare upper-case SQL keywords; lower-case needs SQL context so prose stays docs
-    r"|\bdrop\s+(?:table|database|schema|index|view|column|constraint|type|function|trigger|sequence)\b"
+    r"|\bdrop\s+(?:materialized\s+)?(?:table|database|schema|index|view|column|constraint|type|function|trigger|sequence"
+    r"|role|user|policy|extension|domain|owned)\b"
+    r"|\bdrop\s+(?:\w+\s+){1,3}[\w.\"]+\s*(?:cascade|restrict)?\s*;"  # any other `drop <kind> <name>;` statement
     r"|\btruncate\s+(?:table\b|\S+\s*;)"
     r"|\bdelete\s+from\b"
     # rm with both a recursive and a force flag anywhere in the same command
-    r"|\brm\b(?=[^\n;|&]*\s(?:-(?!-)[a-z]*r|--recursive\b))(?=[^\n;|&]*\s(?:-(?!-)[a-z]*f|--force\b))",
+    r"|\brm\b(?=[^\n;|&]*\s['\"]?(?:-(?!-)[a-z]*r|--recursive\b))(?=[^\n;|&]*\s['\"]?(?:-(?!-)[a-z]*f|--force\b))",
     re.IGNORECASE,
 )
 KIT_BUMP_LINE = re.compile(
