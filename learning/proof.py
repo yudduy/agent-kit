@@ -10,6 +10,7 @@ suite runs on head (it must pass). A case whose added lines hold no assertion is
 proves nothing. Exit 0 only if there is at least one case and every step holds.
 """
 import argparse
+import json
 import re
 import shlex
 import shutil
@@ -20,8 +21,9 @@ from pathlib import Path
 
 from learning.pathcheck import CASES, HOOKS, load
 
-ASSERTION = re.compile(r"\b(assert\w*|expect\w*|should)\b|\.to[A-Z]\w*\(")
+ASSERTION = re.compile(r"\b(assert\w*|expect\w*|should|require\.\w+|t\.(Error|Fatal)\w*)\b|\.to[A-Z]\w*\(")
 COMMENT = re.compile(r"^\s*(#|//|/?\*)")
+STRING = re.compile(r"""("|'|`)(\\.|(?!\1).)*\1""")
 
 
 def cases(files):
@@ -35,8 +37,20 @@ def cases(files):
     return out
 
 
-def asserts(lines):
-    return any(ASSERTION.search(l) for l in lines if not COMMENT.match(l))
+def asserts(lines, jsonl=False):
+    """Code: an assertion outside strings and comments. Case list: every added line has an `expect*` key."""
+    if jsonl:
+        rows = [l for l in lines if l.strip()]
+        return bool(rows) and all(expects(l) for l in rows)
+    return any(ASSERTION.search(STRING.sub('""', l)) for l in lines if not COMMENT.match(l))
+
+
+def expects(line):
+    try:
+        row = json.loads(line)
+    except ValueError:
+        return False
+    return isinstance(row, dict) and any(k.startswith("expect") for k in row)
 
 
 def sh(command, cwd, timeout):
@@ -60,7 +74,7 @@ def prove(files, base, head, case_cmd, suite_cmd, setup=None, timeout=900):
         return False, counts
     runnable = []
     for path, added in found:
-        if asserts(added):
+        if asserts(added, jsonl=path.endswith(".jsonl")):
             runnable.append(path)
             (base / path).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(head / path, base / path)

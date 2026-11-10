@@ -282,6 +282,13 @@ class Proof(unittest.TestCase):
             self.assertFalse(ok, repr(case))
             self.assertEqual(counts["no_assertion"], 1, repr(case))
 
+    def test_assertion_words_inside_strings_do_not_count_and_go_checks_do(self):
+        self.assertFalse(proof.asserts(['print("expected")', "log('should work')"]))
+        self.assertTrue(proof.asserts(['\tt.Fatalf("bad value")']))
+        self.assertTrue(proof.asserts(["    require.Equal(t, 1, got)"]))
+        self.assertTrue(proof.asserts(['{"input": "Ada", "expected": "Ada"}'], jsonl=True))
+        self.assertFalse(proof.asserts(['{"input": "expected"}'], jsonl=True))
+
     def test_a_case_that_fails_on_base_and_passes_on_head_with_the_suite_green_is_proof(self):
         ok, counts = self.prove()
         self.assertTrue(ok)
