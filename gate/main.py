@@ -30,7 +30,7 @@ EVIDENCE_ARTIFACT = "agent-kit-evidence"  # Actions artifact holding evidence.js
 MAX_ARTIFACT_BYTES = 200_000_000  # shortcut: larger artifacts count as missing evidence; raise if real traces exceed it
 LOG_BRANCH = "decisions-log"
 CHECK_NAME = "agent-gate"
-KIT_USES = re.compile(r"""(['"]?)yudduy/agent-kit/[^@\s'"]+@(\S*)""", re.IGNORECASE)  # any kit reference; the ref runs to a space
+KIT_USES = re.compile(r"""(['"]?)yudduy/agent-kit/[^@\s'"]+@([^ \t\r\n]*)""", re.IGNORECASE)  # any kit reference; the ref runs to YAML whitespace
 REPO_NAME = re.compile(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+$")
 
 
@@ -158,6 +158,8 @@ def _kit_pins(client, repo, base_sha):
         if entry["type"] == "file" and entry["name"].endswith((".yml", ".yaml")):
             text = _file(client, repo, entry["path"], base_sha)[0]
             refs = [ref[:-1] if quote and ref.endswith(quote) else ref for quote, ref in KIT_USES.findall(text)]
+            if re.search(r"\\[xuU]", text):  # shortcut: a text scan cannot decode YAML escapes, so fail closed
+                refs.append("an unreadable ref (YAML escape)")
             if refs:
                 pins[entry["path"]] = refs
     return pins
