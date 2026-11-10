@@ -1,0 +1,95 @@
+# Two checks, required on every PR so the gate never sees them skipped; both act only on learning PRs (head `learn/*`).
+# agent-learning-check (INV-12): added test or eval cases pass; higher-level fixes pass but get the `governance`
+#   label so only a human can approve; edits to existing expectations, graders, thresholds, policy, gate or verify
+#   fail. Reads the PR's file list through the API; never runs PR code.
+# learning-proof (INV-13): each added case must fail on the base commit by an assertion and pass on head with at
+#   least one assertion run, and the full suite must pass on head. It runs PR code, so it has read permissions and
+#   no secrets. Repo variables: AGENT_KIT_CASE_CMD, AGENT_KIT_SUITE_CMD, optional AGENT_KIT_TEST_SETUP.
+#   AGENT_KIT_CASE_CMD must be a pytest command with {case}, such as `python -m pytest {case}`. In phase 1 any other
+#   runner (Jest, Vitest, Playwright, a plain script) fails the proof, so a TypeScript-only repo cannot pass it yet.
+name: agent-learning-check
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  pathcheck:
+    name: agent-learning-check
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Skip non-learning PRs
+        if: ${{ !startsWith(github.head_ref, 'learn/') }}
+        run: echo "Not a learning PR (head branch is not learn/*)."
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        if: ${{ startsWith(github.head_ref, 'learn/') }}
+        with:
+          repository: yudduy/agent-kit
+          ref: {{KIT_REF}}
+          path: kit
+          persist-credentials: false
+      - name: Check changed paths
+        if: ${{ startsWith(github.head_ref, 'learn/') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq ".[]" > files.jsonl
+          set +e; python3 kit/learning/pathcheck.py --files files.jsonl; code=$?; set -e
+          if [ "$code" = 10 ]; then
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/labels" -f "labels[]=governance" > /dev/null
+            exit 0
+          fi
+          exit "$code"
+  proof:
+    name: learning-proof
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Skip non-learning PRs
+        if: ${{ !startsWith(github.head_ref, 'learn/') }}
+        run: echo "Not a learning PR (head branch is not learn/*)."
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        if: ${{ startsWith(github.head_ref, 'learn/') }}
+        with:
+          repository: yudduy/agent-kit
+          ref: {{KIT_REF}}
+          path: kit
+          persist-credentials: false
+      - name: List the PR's files
+        if: ${{ startsWith(github.head_ref, 'learn/') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq ".[]" > files.jsonl
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        if: ${{ startsWith(github.head_ref, 'learn/') }}
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        if: ${{ startsWith(github.head_ref, 'learn/') }}
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: head
+          persist-credentials: false
+      - name: Run added cases on base and head, then the full suite on head
+        if: ${{ startsWith(github.head_ref, 'learn/') }}
+        env:
+          CASE_CMD: ${{ vars.AGENT_KIT_CASE_CMD }}
+          SUITE_CMD: ${{ vars.AGENT_KIT_SUITE_CMD }}
+          SETUP: ${{ vars.AGENT_KIT_TEST_SETUP }}
+        run: |
+          set +e
+          PYTHONPATH=kit python3 -m learning.proof --files files.jsonl --base base --head head \
+            --case-cmd "$CASE_CMD" --suite-cmd "$SUITE_CMD" --setup "$SETUP" --summary counts.txt
+          code=$?
+          set -e
+          cat counts.txt >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=learning-proof::$(cat counts.txt)"
+          exit "$code"
