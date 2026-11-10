@@ -6,8 +6,9 @@
 Exit 0: only added test or eval cases (new files, or lines appended to a `.jsonl` case list).
 Exit 10: also a higher-level fix (a new check, a verify-skill or skill-text edit, other code); allowed, and the
          workflow labels the PR `governance` so only a human can approve it.
-Exit 1: the PR deletes or renames a file, edits an existing test or eval case (one added `return` can switch a test
-        off), or touches policy, journeys, seed, graders, thresholds, the gate, verify, or an existing CI workflow.
+Exit 1: the PR deletes or renames a file, edits an existing test, eval case or test setup file (one added `return`
+        can switch a test off), or touches policy, journeys, seed, graders, thresholds, the gate, verify, or an
+        existing CI workflow.
 """
 import argparse
 import json
@@ -32,16 +33,17 @@ def check(files):
     problems, governance = [], []
     for f in files:
         path, status = f["filename"], f["status"]
-        is_case = any(fnmatch(path, p) for p in CASES) and not any(fnmatch(path, p) for p in HOOKS)
+        in_tests = any(fnmatch(path, p) for p in CASES)
+        hook = any(fnmatch(path, p) for p in HOOKS)
         if status not in ("added", "modified"):
             problems.append("%s (%s): a learning PR may not delete or rename files" % (path, status))
         elif any(fnmatch(path, p) for p in NEEDS_HUMAN):
             problems.append("%s: policy, journeys, graders, thresholds, the gate and verify change only by a human" % path)
         elif status == "modified" and fnmatch(path, ".github/workflows/*"):
             problems.append("%s: existing CI workflows change only by a human; add a new workflow instead" % path)
-        elif is_case and status == "modified" and not (path.endswith(".jsonl") and only_additions(f.get("patch"))):
-            problems.append("%s: edits an existing case; only new cases are allowed" % path)
-        elif not is_case:
+        elif status == "modified" and (hook or in_tests) and not (path.endswith(".jsonl") and only_additions(f.get("patch"))):
+            problems.append("%s: edits an existing test, case or test setup file; only new cases are allowed" % path)
+        elif hook or not in_tests:
             governance.append(path)
     return problems, governance
 

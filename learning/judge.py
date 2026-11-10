@@ -75,12 +75,12 @@ def judged(pages, me, repo, number, head):
     """True when this login already posted a verdict for this head commit; markers from anyone else do not count."""
     for c in pages("/repos/%s/issues/%d/comments" % (repo, number)):
         found = re.search(r"<!-- %s (\{.*?\}) -->" % MARKER, c.get("body") or "")
-        if found and (c.get("user") or {}).get("login") == me and json.loads(found.group(1)).get("head_sha") == head:
+        if found and (c.get("user") or {}).get("login") == me and json_object(found.group(1)).get("head_sha") == head:
             return True
     return False
 
 
-def parse_answer(answer):
+def json_object(answer):
     try:
         reply = json.loads(re.search(r"\{.*\}", answer, re.S).group(0))
     except (AttributeError, ValueError):
@@ -107,7 +107,7 @@ def judge_pr(api, pages, ask, model, me, repo, pr):
         new = "\n\n".join("--- %s\n%s" % (p, text_at(api, repo, p, head)) for p in paths)
         new_first = int(hashlib.sha256(head.encode()).hexdigest(), 16) % 2 == 0
         answer = ask(PROMPT.format(cls=fields.get("class", "the mistake named in the PR"), a=new if new_first else old, b=old if new_first else new))
-        reply = parse_answer(answer)
+        reply = json_object(answer)
         better = reply.get("better")
         verdict = "tie" if better == "tie" else ("new" if (better == "A") == new_first else "old") if better in ("A", "B") else "unclear"
         text = {"new": "the new skill text is better", "old": "the old skill text is better", "tie": "no clear difference",

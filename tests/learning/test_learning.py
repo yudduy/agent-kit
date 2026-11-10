@@ -127,6 +127,11 @@ class PathCheck(unittest.TestCase):
             problems, governance = pathcheck.check(files((hook, "added", "+x")))
             self.assertEqual((problems, governance), ([], [hook]), hook)
 
+    def test_editing_an_existing_test_or_hook_fails(self):
+        for path in ("tests/test_setup.py", "playwright.config.ts", "tests/conftest.py"):
+            problems, _ = pathcheck.check(files((path, "modified", "-    assert authorized\n+    pass")))
+            self.assertEqual(len(problems), 1, path)
+
     def test_exit_codes(self):
         path = Path(tempfile.mkdtemp()) / "files.jsonl"
         for entries, code in [((("tests/a.spec.ts", "added", "+x"),), 0), ((("src/check.py", "added", "+x"),), 10),
@@ -219,6 +224,11 @@ class Judge(unittest.TestCase):
         self.assertEqual(self.run_judge(api, lambda p: "{}"), [])
         self.assertIn("another model family", api.posted[0][1]["body"])
 
+
+    def test_a_broken_stored_marker_is_ignored(self):
+        api = FakeGitHubAPI()
+        api.comments = [{"body": "<!-- agent-kit:judge v1 {broken} -->", "user": {"login": "agent-kit-judge"}}]
+        self.assertEqual(len(self.run_judge(api, lambda p: '{"better": "tie", "reason": "x"}')), 1)
 
 if __name__ == "__main__":
     unittest.main()

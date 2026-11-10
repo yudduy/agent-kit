@@ -45,7 +45,7 @@ check: it runs on every PR (so the gate never sees it skipped) and checks only `
 |---|---|
 | Only new test or eval files, or lines appended to a `.jsonl` case list | Pass |
 | Also a higher-level fix: a new check or workflow, a verify-skill or skill-text edit, other code | Pass, labelled `governance` (only Duy can approve) |
-| A deleted or renamed file, an edited existing test or case, `.agent-kit/` (policy, journeys, seed), graders, thresholds, `gate/`, `verify/`, `learning/`, or an existing CI workflow | Fail |
+| A deleted or renamed file, an edited existing test, case or test setup file, `.agent-kit/` (policy, journeys, seed), graders, thresholds, `gate/`, `verify/`, `learning/`, or an existing CI workflow | Fail |
 
 An edit to an existing test fails even if it only adds lines, because one added `return` can switch a test off.
 A new file that runs when a suite loads (`conftest.py`, `__init__.py`, `*.config.*`, setup files) is not a case:
