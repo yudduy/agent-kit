@@ -68,6 +68,14 @@ class TickTest(unittest.TestCase):
         fixture.writes.clear()
         self.assertEqual(tick(fixture)[1], [("PUT", f"/repos/{REPO}/pulls/12/merge", {"sha": HEAD})])
 
+    def test_quoted_correct_kit_pin_still_merges(self):
+        fixture = Fixture(FIXTURE)
+        path = f"/repos/{REPO}/contents/.github/workflows/verify.yml?ref={BASE}"
+        text = base64.b64decode(fixture.api[path]["content"]).decode()
+        text += "  other:\n    uses: 'yudduy/agent-kit/.github/workflows/verify.yml@" + "a" * 40 + "'  # pinned\n"
+        fixture.api[path]["content"] = base64.b64encode(text.encode()).decode()
+        self.assertIn(("PUT", f"/repos/{REPO}/pulls/12/merge"), kinds(tick(fixture)[1]))
+
     def test_human_approved_pr_is_merged_by_the_gate_d2(self):
         fixture = Fixture(FIXTURE)
         fixture.api[f"/repos/{REPO}/pulls/13/reviews"] = [
@@ -87,7 +95,8 @@ class TickTest(unittest.TestCase):
                    '  other:\n    "uses": yudduy/agent-kit/.github/workflows/verify.yml@main\n',
                    "  other:\n    uses: 'YudDuy/Agent-Kit/.github/workflows/verify.yml@main'\n",
                    "  other:\n    uses: yudduy/agent-kit/.github/workflows/verify.yml@" + "a" * 40 + ",other\n",
-                   "  other:\n    uses: yudduy/agent-kit/.github/workflows/verify.yml@" + "a" * 40 + "#other\n")
+                   "  other:\n    uses: yudduy/agent-kit/.github/workflows/verify.yml@" + "a" * 40 + "#other\n",
+                   "  other:\n    uses: yudduy/agent-kit/.github/workflows/verify.yml@" + "a" * 40 + "'other\n")
         for caller in callers:
             with self.subTest(caller):
                 fixture = Fixture(FIXTURE)
