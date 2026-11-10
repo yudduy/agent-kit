@@ -65,6 +65,10 @@ class SchemaTest(unittest.TestCase):
             with self.subTest(name):
                 self.assertNotEqual(evidence.errors(mutate(fn)), [])
 
+    def test_journeys_sha_may_be_null(self):
+        self.assertEqual(evidence.errors(mutate(lambda d: d.update(journeys_sha=None))), [])
+        self.assertNotEqual(evidence.errors(mutate(lambda d: d.update(policy_sha=None))), [])
+
     def test_regression_never_decides_the_result(self):
         doc = mutate(lambda d: d["regression"][0].update(pass_on_head=False))
         self.assertEqual(evidence.errors(doc), [])

@@ -14,7 +14,7 @@
     "base_sha": {"$ref": "#/$defs/git_sha"},
     "kit_ref": {"$ref": "#/$defs/git_sha"},
     "policy_sha": {"$ref": "#/$defs/git_sha"},
-    "journeys_sha": {"$ref": "#/$defs/git_sha"},
+    "journeys_sha": {"anyOf": [{"$ref": "#/$defs/git_sha"}, {"type": "null"}]},
     "run": {
       "type": "object",
       "additionalProperties": false,

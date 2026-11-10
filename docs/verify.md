@@ -12,7 +12,7 @@ The kit's reusable workflow [`verify.yml`](../.github/workflows/verify.yml) runs
 
 - Policy, journeys and seed always come from the **base** commit (INV-3). A PR that edits them changes nothing until it merges.
 - Data assertions are run by the kit's observer (`verify/observe.py`) with a read-only connection straight to the database. Candidate code never answers for its own data.
-- New specs the PR adds under `tests/regress/*.spec.ts` run on base and on head. Their result (`fail_on_base`, `pass_on_head`) is shown to humans and feeds the shadow verdict. It never passes the gate alone (`trusted: false`).
+- New spec files the PR adds that match `verify.regress_glob` in the policy (default `tests/regress/*.spec.ts`) run on base and on head. Their result (`fail_on_base`, `pass_on_head`) is shown to humans and feeds the shadow verdict. It never passes the gate alone (`trusted: false`).
 - A scenario passes only if its UI step passes **and** it has at least one data assertion, all passing. The evidence `result` is `pass` only if there is at least one scenario and all pass.
 
 ## The `app` section of `.agent-kit/policy.yml`
@@ -30,6 +30,13 @@ app:
 - `start.cmd`: optional, used only by local host-mode reruns (below). CI ignores it.
 - The kit passes two environment variables to the app: `PORT` and `DATABASE_URL`.
 - `db.seed`: a SQL file loaded into a fresh database before each scenario and each regression run. Synthetic data only (D9).
+
+Regression specs the PR adds are found with an optional glob (quote it; the kit's YAML parser rejects a plain scalar starting with `*`):
+
+```yaml
+verify:
+  regress_glob: "tests/regress/*.spec.ts"   # the default; `**` matches any depth
+```
 
 Supported databases:
 
@@ -86,7 +93,7 @@ python3 verify/evidence.py /tmp/evidence/evidence.json --artifacts-dir /tmp/evid
 npx playwright show-trace /tmp/evidence/traces/save-profile.zip
 ```
 
-- Needs Python 3.11+, git, `yq`, Node and npm (the first run installs Playwright into the scratch directory). Postgres also needs `psql`, plus `AGENT_KIT_PG_URL` (an admin URL to a scratch server) in host mode.
+- Needs Python 3.11+, git, Node and npm (the first run installs Playwright into the scratch directory). Postgres also needs `psql`, plus `AGENT_KIT_PG_URL` (an admin URL to a scratch server) in host mode.
 - Exit code: 0 = pass, 1 = fail, 2 = the evidence file itself is invalid.
 
 To see the whole flow on the bundled fixture app, whose planted bug answers "Saved" without writing:
@@ -95,13 +102,3 @@ To see the whole flow on the bundled fixture app, whose planted bug answers "Sav
 python3 tests/verify/fixtures/make_repo.py /tmp/fixture     # prints the bug, fix and mutant commits
 AGENT_KIT_E2E=1 python3 -m unittest discover -s tests/verify
 ```
-
-## Doctor
-
-`python3 doctor/doctor.py <repo> [--env-file dump.env] [--env-names names.txt]` checks a checkout for production credentials (INV-7) in `.cursor/environment.json`, workflow files and the dumps you pass. It also checks for missing kit files, an unpinned kit caller, and the line in `AGENTS.md` recording that Seer and the native Cursor Sentry trigger are off:
-
-```
-<!-- agent-kit:automation v1 seer:off cursor-sentry:off -->
-```
-
-It never prints a secret value, makes no network calls, and exits 1 on any finding.

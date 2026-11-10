@@ -12,4 +12,4 @@ permissions:
 
 jobs:
   verify:
-    uses: yudduy/agent-kit/.github/workflows/verify.yml@__KIT_REF__
+    uses: yudduy/agent-kit/.github/workflows/verify.yml@{{KIT_REF}}

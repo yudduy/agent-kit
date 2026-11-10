@@ -2,8 +2,8 @@
 
 Inputs come from the base commit only (policy, journeys, seed). The candidate (head)
 app runs under kit control; data assertions run from kit code straight against the DB.
-The PR's new regression specs under tests/regress/ run on base and on head as
-untrusted evidence.
+The PR's new regression specs (policy `verify.regress_glob`, default
+tests/regress/*.spec.ts) run on base and on head as untrusted evidence.
 
 Isolation:
 - container (default, used in CI): the app is the image `app.build` tags `app`, run
@@ -28,12 +28,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from gate import miniyaml  # noqa: E402
 from verify import evidence, observe  # noqa: E402
 
 PLAYWRIGHT_VERSION = "1.65.0"
 PLAYWRIGHT_IMAGE = f"mcr.microsoft.com/playwright:v{PLAYWRIGHT_VERSION}-noble"
 KIT_REPO = "yudduy/agent-kit"
-REGRESS_DIR = "tests/regress"
+DEFAULT_REGRESS_GLOB = "tests/regress/*.spec.ts"
+JOURNEYS_DIR = ".agent-kit/journeys"
 SPEC_TIMEOUT_S = 600
 PG_PASSWORD = "agentkit"
 
@@ -55,9 +57,10 @@ def export_tree(repo, sha, dest):
 
 
 def load_policy(path):
-    """Parse YAML with `yq` (mikefarah, preinstalled on GitHub runners)."""
-    out = subprocess.run(["yq", "-o=json", ".", str(path)], check=True, capture_output=True, text=True)
-    policy = json.loads(out.stdout)
+    try:
+        policy = miniyaml.loads(Path(path).read_text())
+    except miniyaml.YamlError as exc:
+        raise SystemExit(f"policy: {exc}")
     app = policy.get("app") or {}
     for key in ("start", "db"):
         if not isinstance(app.get(key), dict):
@@ -65,6 +68,23 @@ def load_policy(path):
     if "port" not in app["start"] or "seed" not in app["db"]:
         raise SystemExit("policy: app.start.port and app.db.seed are required")
     return policy
+
+
+def regress_glob(policy):
+    return (policy.get("verify") or {}).get("regress_glob", DEFAULT_REGRESS_GLOB)
+
+
+def new_regression_specs(repo, base_sha, head_sha, glob):
+    """Spec files the PR adds (absent on base) that match the policy glob."""
+    return git(repo, "diff", "--name-only", "--diff-filter=A", base_sha, head_sha, "--",
+               f":(glob){glob}").splitlines()
+
+
+def journeys_sha(repo, base_sha):
+    """Tree sha of the base journeys dir, or None when base has none (C2)."""
+    proc = subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", "-q", f"{base_sha}:{JOURNEYS_DIR}"],
+                          capture_output=True, text=True)
+    return proc.stdout.strip() or None
 
 
 def db_engine(db):
@@ -300,9 +320,7 @@ def verify(args):
         journeys = [j for j in journeys if j["id"] in args.scenario]
         if not journeys:
             raise SystemExit(f"no journey with id {args.scenario} in the base policy")
-    new_specs = [] if args.scenario else [
-        p for p in git(repo, "diff", "--name-only", "--diff-filter=A", base_sha, head_sha, "--",
-                       REGRESS_DIR).splitlines() if p.endswith(".spec.ts")]
+    new_specs = [] if args.scenario else new_regression_specs(repo, base_sha, head_sha, regress_glob(policy))
 
     head = App(app_cfg, head_dir, "head", args.isolation, work)
     base = App(app_cfg, base_dir, "base", args.isolation, work)
@@ -326,7 +344,7 @@ def verify(args):
     dbs = Databases(engine, app_cfg["db"], seed.decode(), work, args.isolation)
     try:
         scenarios = [run_scenario(j, head, dbs, pw, base_dir, out_dir) for j in journeys]
-        staged = [pw.stage("regress", Path(s).relative_to(REGRESS_DIR), head_dir / s) for s in new_specs]
+        staged = [pw.stage("regress", Path(s), head_dir / s) for s in new_specs]
         on_head = [run_regression(s, head, dbs, pw) for s in staged]
         on_base = [run_regression(s, base, dbs, pw) for s in staged]
     finally:
@@ -339,7 +357,7 @@ def verify(args):
         "schema": 1, "repo": args.repo_name, "pr": args.pr, "head_sha": head_sha, "base_sha": base_sha,
         "kit_ref": kit_ref,
         "policy_sha": git(repo, "rev-parse", f"{base_sha}:.agent-kit/policy.yml"),
-        "journeys_sha": git(repo, "rev-parse", f"{base_sha}:.agent-kit/journeys"),
+        "journeys_sha": journeys_sha(repo, base_sha),
         "run": {"id": args.run_id, "attempt": args.run_attempt,
                 "workflow_ref": args.workflow_ref or f"{KIT_REPO}/.github/workflows/verify.yml@{kit_ref}"},
         "env": {"runner_image": runner_image(),
