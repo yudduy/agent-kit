@@ -13,7 +13,8 @@ KIT_CALLER_PATHS = (".github/workflows/**", ".agent-kit/policy.yml")
 DESTRUCTIVE_LINE = re.compile(
     r"\b(?-i:DROP|TRUNCATE)\b"  # bare upper-case SQL keywords; lower-case needs SQL context so prose stays docs
     r"|\bdrop\s+(?:materialized\s+|foreign\s+|event\s+|text\s+search\s+)?(?:access\s+method|aggregate|cast|collation"
-    r"|column|constraint|conversion|data\s+wrapper|database|domain|extension|function|group|index|language|operator"
+    r"|column|configuration|constraint|conversion|data\s+wrapper|database|dictionary|domain|extension|function|group"
+    r"|index|language|operator|parser|template"
     r"|owned|policy|procedure|publication|role|routine|rule|schema|sequence|server|statistics|subscription|table"
     r"|tablespace|transform|trigger|type|user|view)\b"
     r"|\btruncate\s+(?:table\b|\S+\s*;)"

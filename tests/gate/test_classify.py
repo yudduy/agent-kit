@@ -57,7 +57,9 @@ class ClassifyTest(unittest.TestCase):
                      "rm -r -f /x", "rm -f -r /x", "rm --recursive --force /x", "rm -r --force x", "sudo rm  -rf x",
                      "drop role old_role;", "drop materialized view old_view;", "drop policy p on t;", "drop user bob",
                      "rm \"-rf\" /tmp/x", "rm '-r' '--force' x", "drop aggregate total(integer);", "drop cast (text as integer);",
-                     "drop publication old_publication", "rm -\"rf\" x", "rm --\"recursive\" --\"force\" x"):
+                     "drop publication old_publication", "rm -\"rf\" x", "rm --\"recursive\" --\"force\" x",
+                     "drop text search configuration cfg;", "drop text search dictionary d", "drop text search parser p",
+                     "drop text search template t"):
             with self.subTest(line):
                 self.assertEqual(cls(change("src/x.sh", patch=f"@@ -0,0 +1 @@\n+{line}"))[0], "destructive")
         for line in ("drag and drop the file", "delete the old file", "truncate the text", "rm -f x", "rm -r dir",
