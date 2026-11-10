@@ -1,5 +1,5 @@
-"""Helper the Mac mini deciders run. Needs only a fine-grained GitHub token with Issues read/write on agent-control,
-plus the Mac mini's own Cursor key for `steer`. It never creates runs (D5).
+"""Helper the Mac mini deciders run. Needs only a fine-grained GitHub token with Issues read/write on agent-control.
+It never calls Cursor: a steer is a request comment that the dispatcher carries out on its next tick (D5).
 
 Run from a kit checkout: `python3 -m dispatcher.macmini <command>`.
 
@@ -8,16 +8,16 @@ Run from a kit checkout: `python3 -m dispatcher.macmini <command>`.
   macmini.py decide <issue> fix|triage|ignore --prompt-file FILE [--model ID]
   macmini.py steer <issue> --text "..."
 
-Env: AGENT_KIT_CONTROL_REPO (owner/name), AGENT_KIT_HEARTBEAT_ISSUE, GITHUB_TOKEN, CURSOR_API_KEY (steer only).
+Env: AGENT_KIT_CONTROL_REPO (owner/name), AGENT_KIT_HEARTBEAT_ISSUE, GITHUB_TOKEN.
 """
 import argparse
 import json
 import os
 import socket
 
-from dispatcher import cursor, github
+from dispatcher import github
 from dispatcher import markers as m
-from dispatcher.tick import claims_in, current, labels_of, runs_in
+from dispatcher.tick import labels_of
 
 
 def heartbeat(gh, ctl, issue, accepting=True, open_decisions=0, deciders=("claude", "codex", "opencode")):
@@ -32,7 +32,7 @@ def heartbeat(gh, ctl, issue, accepting=True, open_decisions=0, deciders=("claud
 def pending(gh, ctl):
     """Open incidents waiting for a decision."""
     return [i for i in gh.issues(ctl, m.NEEDS_DECISION)
-            if not labels_of(i) & ({m.DECIDED, m.IGNORED, m.CLAIMED, m.RUNNING} | m.DONE)]
+            if not labels_of(i) & {m.DECIDED, m.IGNORED, *m.DISPATCHER_LABELS}]
 
 
 def decide(gh, ctl, issue, action, prompt, model=None):
@@ -40,25 +40,9 @@ def decide(gh, ctl, issue, action, prompt, model=None):
     gh.add_labels(ctl, issue, [m.IGNORED if action == "ignore" else m.DECIDED])
 
 
-def steer(gh, client, ctl, issue, text):
-    """Send `text` into the active run of the issue's current claim. Refuses anything else, because a steer to an
-    idle agent becomes its next run, and only the dispatcher creates runs (D5, INV-8)."""
-    comments = current(gh.comments(ctl, issue))
-    claims, runs = claims_in(comments), runs_in(comments)
-    if not claims or claims[-1]["attempt"] not in runs:
-        raise SystemExit("Issue #%d has no dispatcher run for its current claim; only the dispatcher starts runs." % issue)
-    cursor_id = runs[claims[-1]["attempt"]]
-    before = client.latest_run(cursor_id)
-    if before["status"] not in cursor.ACTIVE:
-        raise SystemExit("The run for issue #%d is %s, not active; steering it would start a new run." % (issue, before["status"]))
-    result = client.steer(cursor_id, text)
-    after = client.latest_run(cursor_id) if result.get("delivery") == "queued" else before
-    if after["id"] != before["id"]:
-        # shortcut: Cursor has no "steer only if running" precondition. A queued steer becomes the agent's next run,
-        # so that run is cancelled at once; a steer the running turn accepted is left alone.
-        client.cancel(cursor_id, after["id"])
-        raise SystemExit("The run for issue #%d ended before the steer landed; cancelled run %s it started." % (issue, after["id"]))
-    return result
+def steer(gh, ctl, issue, text):
+    """Ask the dispatcher to steer the issue's current run; it refuses when no run is active."""
+    return gh.comment(ctl, issue, m.steer_comment(text))
 
 
 def main(argv=None):
@@ -87,7 +71,7 @@ def main(argv=None):
         with open(args.prompt_file) as handle:
             decide(gh, ctl, args.issue, args.action, handle.read(), args.model)
     else:
-        print(json.dumps(steer(gh, cursor.Client(os.environ["CURSOR_API_KEY"]), ctl, args.issue, args.text)))
+        steer(gh, ctl, args.issue, args.text)
     return 0
 
 

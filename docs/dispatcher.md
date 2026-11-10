@@ -14,16 +14,17 @@ It reads repo policies with the gate's parser, so it needs `gate/` on the same k
 3. Upsert one issue per fingerprint (`fp` = first 16 hex of sha256 of `<source>:<id>`), labelled `agent:incident` and
    `agent:needs-decision`. 50 replays of one error find the same issue. A closed issue whose error is seen again
    after it closed is reopened (that is what makes a false green visible); an ignored one is not.
-4. For each open incident, oldest first (and each closed one whose run is still claimed or running, which keeps
-   counting against the caps until its run ends; a closed claim is reconciled but never retried):
-   - `agent:running`: read the Cursor run. Finished with a PR → `agent:pr-open`. Finished without one → its reply is
-     posted as the triage and `agent:triaged`. Error, cancelled or expired → a failed attempt.
-   - `agent:claimed` with no run line for 10 min: look the attempt up in Cursor's list (INV-8). Found → record it.
-     Not found → one retry with a new attempt.
+4. For each open incident, oldest first, by its markers (and each closed one updated in the last 7 days, whose open
+   claim keeps counting against the caps until its run ends; a closed claim is reconciled but never retried):
+   - A claim with a run line and no result: read the Cursor run and send pending steers. Finished with a PR →
+     result `pr` (shown as `agent:pr-open`). Finished without one → its reply is posted as the triage, result
+     `triage`. Error, cancelled or expired → result `failed`.
+   - A claim with no run line for 10 min: look the attempt up in Cursor's list (INV-8). Found → record it.
+     Not found → result `lost`, then one retry with a new attempt.
    - Otherwise: use the latest valid decision comment from a decider. With none, wait, unless the Mac mini heartbeat
      is stale (C4: older than 30 min or `accepting: false`), then send the default "reproduce, then fix or write triage" run.
 5. Before a run starts: 1 active run per repo, 3 globally, and the daily spend cap (kit caps, lowered by the repo's
-   policy `caps`, never raised). The claim comment and `agent:claimed` are written **before** Cursor is called, and
+   policy `caps`, never raised). The claim comment is written **before** Cursor is called, and
    the Cursor agent id is `bc-<attempt>`, so a repeated create returns 409 instead of a second run.
 6. After `max_attempts` failed attempts, or when the daily spend cap is hit: a comment, `agent:needs-human`, and an
    assignment to `escalate_to` (GitHub emails the assignee). Nothing writes to Slack (INV-10).
@@ -84,16 +85,27 @@ export AGENT_KIT_CONTROL_REPO=yudduy/agent-control AGENT_KIT_HEARTBEAT_ISSUE=1 G
 python3 -m dispatcher.macmini heartbeat                    # every 5 min; edits its own comment in place
 python3 -m dispatcher.macmini pending                      # incidents waiting for a decision
 python3 -m dispatcher.macmini decide 12 fix --prompt-file prompt.md
-CURSOR_API_KEY=… python3 -m dispatcher.macmini steer 12 --text "Also cover the empty-name case"
+python3 -m dispatcher.macmini steer 12 --text "Also cover the empty-name case"
 ```
 
-The helper never creates runs; only the dispatcher does (D5). `steer` follows up only the run recorded by the
-dispatcher for the issue's current claim (after any reopen), and only while that run is active: a steer to an idle
-agent would become its next run. Any other run marker is refused. Cursor has no "steer only if running" option, so
-if the run ends between the check and the steer and the steer starts a new run, the helper cancels that run at once
-and reports it; a steer the running turn accepted is left alone, so if that turn ends first the prompt can still start one run (a Cursor limit).
+The helper never calls Cursor and needs no Cursor key. `steer` posts a request comment
+(`<!-- agent-kit:steer v1 {"id": …, "prompt_sha256": …} -->` and the text), accepted only from a login in
+`deciders` with an intact prompt hash. On its next tick the dispatcher sends it into the current claim's active
+run and records a `steered` marker, so each request is sent once; with no active run it is refused.
+A steer can still become the agent's next run (Cursor queues it, or the turn ends before reading it). That run
+belongs to the same claim: the claim stays reserved, counting against the caps, until 10 minutes after the steered
+run ends with no later run, and then the claim closes on whichever run came last. One fingerprint never has more
+than one active run.
 
 ## Cursor
 
 `dispatcher/cursor.py` is the only module that talks to Cursor (Cloud Agents API v1, beta): create, list, get agent,
-get run, steer. If the beta changes, only that file changes.
+get run, steer. The dispatcher is its only caller. If the beta changes, only that file changes.
+
+## State and labels
+
+Run state comes only from markers the dispatcher writes (`claim`, `run`, `result`, `escalate`, `reopen`, `idle`,
+`steered`), the requests deciders write (`decision`, `steer`), and Cursor's run state. A claim without a `result`
+marker is a reservation, whatever the labels say. The dispatcher's labels (`agent:claimed`, `agent:running`,
+`agent:pr-open`, `agent:triaged`, `agent:needs-human`) only display that state, and each tick resets them to match;
+removing or adding one by hand changes nothing.

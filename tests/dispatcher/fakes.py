@@ -110,6 +110,7 @@ class FakeCursor:
     def __init__(self, clock):
         self.clock, self.agents, self.creates = clock, {}, 0
         self.run_status, self.lose_create, self.fail_create = "RUNNING", False, False
+        self.steers, self.steer_delivery = [], "steered"
 
     def __call__(self, method, url, headers=None, body=None):
         path = url.split("api.cursor.com", 1)[1].split("?")[0]
@@ -133,8 +134,16 @@ class FakeCursor:
         if method == "GET" and len(parts) == 3:
             return (200, {}, self.agents[parts[2]]) if parts[2] in self.agents else (404, {}, {"code": "not_found"})
         if method == "GET" and len(parts) == 5 and parts[3] == "runs":
-            run = {**fixture("cursor_run_finished.json"), "agentId": parts[2], "status": self.run_status}
+            run = {**fixture("cursor_run_finished.json"), "id": parts[4], "agentId": parts[2], "status": self.run_status,
+                   "updatedAt": self.clock.iso()}
             if self.run_status != "FINISHED":
                 run.pop("git")
             return 200, {}, run
+        if method == "POST" and len(parts) == 4 and parts[3] == "runs" and body.get("delivery") == "steer":
+            self.steers.append((parts[2], body["prompt"]["text"]))
+            return 202, {}, {"delivery": self.steer_delivery, **({"runId": self.agents[parts[2]]["latestRunId"]} if self.steer_delivery == "steered" else {})}
         raise AssertionError("unexpected Cursor call %s %s" % (method, url))
+
+    def new_run(self, agent_id, run_id):
+        """The agent's queued follow-up starts as a new run."""
+        self.agents[agent_id]["latestRunId"] = run_id

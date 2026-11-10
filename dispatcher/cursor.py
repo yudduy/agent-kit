@@ -1,8 +1,8 @@
 """The only module that talks to Cursor: Cloud Agents API v1 (beta), https://cursor.com/docs/cloud-agent/api/endpoints.
 
 Endpoints used: POST /v1/agents, GET /v1/agents, GET /v1/agents/{id},
-GET /v1/agents/{id}/runs/{runId}, POST /v1/agents/{id}/runs (follow-up or steer),
-POST /v1/agents/{id}/runs/{runId}/cancel.
+GET /v1/agents/{id}/runs/{runId}, POST /v1/agents/{id}/runs (steer).
+The dispatcher is the only caller of this module.
 """
 import base64
 import urllib.parse
@@ -77,8 +77,14 @@ class Client:
         agent = self.get(cursor_id)
         return self._call("GET", "/v1/agents/%s/runs/%s" % (cursor_id, agent["latestRunId"]))
 
-    def cancel(self, cursor_id, run_id):
-        return self._call("POST", "/v1/agents/%s/runs/%s/cancel" % (cursor_id, run_id))
-
     def steer(self, cursor_id, text):
-        return self._call("POST", "/v1/agents/%s/runs" % cursor_id, {"prompt": {"text": text}, "delivery": "steer"})
+        """`{"delivery": "steered"|"queued", ...}`. A queued steer becomes the agent's next run. Ambiguous when the
+        request may have arrived: Cursor treats a retry as a new prompt, so never retry one."""
+        try:
+            return self._call("POST", "/v1/agents/%s/runs" % cursor_id, {"prompt": {"text": text}, "delivery": "steer"})
+        except http.Unreachable as error:
+            raise Ambiguous(str(error)) from error
+        except CursorError as error:
+            if error.status >= 500 or error.status == 429:
+                raise Ambiguous(str(error)) from error
+            raise
