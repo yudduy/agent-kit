@@ -39,6 +39,24 @@ class DecideTest(unittest.TestCase):
         self.assertEqual(record["class"], "governance")
         self.assertBlocked(record, "class governance needs a human approval")
 
+    def test_learning_pr_needs_a_passing_learning_proof_check_inv13(self):
+        approved = [review("alice")]
+        def learning(checks):
+            f = facts(files=[change("tests/regress/case.spec.ts")], reviews=approved, checks=checks)
+            f.pr["head"]["ref"] = "learn/case-3f9a"
+            return gate(f)
+        base = {"test": {"github-actions": "success"}}
+        for state in ("missing", "skipped", "neutral", "failure", "pending"):
+            checks = dict(base) if state == "missing" else {**base, "learning-proof": {"github-actions": state}}
+            with self.subTest(state):
+                record = learning(checks)
+                self.assertBlocked(record, f"required check 'learning-proof (github-actions)' is {state}")
+        self.assertBlocked(learning({**base, "learning-proof": {"evil-app": "success"}}), "'learning-proof (github-actions)' is missing")
+        record = learning({**base, "learning-proof": {"github-actions": "success"}})
+        self.assertEqual((record["conclusion"], record["required_checks"]),
+                         ("success", {"test (github-actions)": "success", "learning-proof (github-actions)": "success"}))
+        self.assertNotIn("learning-proof (github-actions)", gate(facts())["required_checks"])
+
     def test_skill_or_agents_edit_is_governance(self):
         for path in ("skills/verify-app/SKILL.md", "AGENTS.md"):
             with self.subTest(path):

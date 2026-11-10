@@ -4,10 +4,11 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 
-from gate.classify import classify, glob_matches
+from gate.classify import LEARNING_BRANCH, classify, glob_matches
 from gate.policy import AUTO_ALLOWED, FLOOR_CLASSES, PolicyError, parse
 
 KIT_VERIFY_WORKFLOW = "yudduy/agent-kit/.github/workflows/verify.yml"
+LEARNING_PROOF = {"name": "learning-proof", "app": "github-actions"}  # INV-13: fails before, passes after, full suite
 # The gate accepts evidence schema n and n-1 (D11). v1 is the first schema, so n-1 has no format yet.
 EVIDENCE_SCHEMAS = (1,)
 
@@ -56,8 +57,8 @@ def decide(f):
         blocking.append(str(error))
     cls, hits = classify(f.files, policy, f.pr["head"]["ref"])
 
-    required = {f"{c['name']} ({c['app']})": f.checks.get(c["name"], {}).get(c["app"], "missing")
-                for c in (policy or {}).get("required_checks", [])}
+    required_checks = (policy or {}).get("required_checks", []) + ([LEARNING_PROOF] if f.pr["head"]["ref"].startswith(LEARNING_BRANCH) else [])
+    required = {f"{c['name']} ({c['app']})": f.checks.get(c["name"], {}).get(c["app"], "missing") for c in required_checks}
     blocking += [f"required check {name!r} is {state}" for name, state in required.items() if state != "success"]
 
     if policy is not None:  # D1: every kit caller on base runs the kit the policy pins
