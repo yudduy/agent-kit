@@ -281,9 +281,9 @@ def verify(args):
     base_sha, head_sha = git(repo, "rev-parse", args.base), git(repo, "rev-parse", args.head)
     work = Path(args.work or tempfile.mkdtemp(prefix="agent-kit-verify-")).resolve()
     out_dir = Path(args.out).resolve()
-    if out_dir.exists():
-        shutil.rmtree(out_dir)
-    out_dir.mkdir(parents=True)
+    if out_dir.exists() and any(out_dir.iterdir()):
+        raise SystemExit(f"--out {out_dir} is not empty; choose a new directory")
+    out_dir.mkdir(parents=True, exist_ok=True)
     for side in ("base", "head"):
         if (work / side).exists():
             shutil.rmtree(work / side)
@@ -315,6 +315,12 @@ def verify(args):
     if args.phase == "build":
         sh(["docker", "save", "-o", args.images, *[app.image for app in apps]])
         return 0
+    if args.isolation == "container":
+        # The candidate's build (or its image archive) can set any local tag; re-pull the trusted images.
+        trusted = [app_cfg["db"]["image"]] if engine == "postgres" else []
+        trusted += [PLAYWRIGHT_IMAGE] if new_specs else []
+        for image in trusted:
+            sh(["docker", "pull", "-q", image], stdout=subprocess.DEVNULL)
 
     pw = Playwright(work, args.install_browsers)
     dbs = Databases(engine, app_cfg["db"], seed.decode(), work, args.isolation)
@@ -336,7 +342,8 @@ def verify(args):
         "journeys_sha": git(repo, "rev-parse", f"{base_sha}:.agent-kit/journeys"),
         "run": {"id": args.run_id, "attempt": args.run_attempt,
                 "workflow_ref": args.workflow_ref or f"{KIT_REPO}/.github/workflows/verify.yml@{kit_ref}"},
-        "env": {"runner_image": runner_image(), "app_image_digest": image_digest(head.image) if args.isolation == "container" else None,
+        "env": {"runner_image": runner_image(),
+                "app_image_digest": image_digest(head.image) if args.isolation == "container" else None,
                 "db_image_digest": dbs.digest, "seed_hash": "sha256:" + evidence.sha256_bytes(seed)},
         "scenarios": scenarios,
         "regression": [evidence.regression_entry(s, b, h) for s, b, h in zip(new_specs, on_base, on_head)],

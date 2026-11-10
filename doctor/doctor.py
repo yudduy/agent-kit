@@ -28,7 +28,7 @@ JWT = re.compile(r"\beyJ[0-9A-Za-z_-]+\.(eyJ[0-9A-Za-z_-]+)\.[0-9A-Za-z_-]+")
 DB_URL = re.compile(r"\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|rediss?)://[^\s'\"]+")
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0", "host.docker.internal"}
 PROD_NAME = re.compile(r"(^|_)(PROD|PRODUCTION)(_|$)|SERVICE_ROLE|^VERCEL_TOKEN$|^SUPABASE_ACCESS_TOKEN$")
-NAME_IN_TEXT = re.compile(r"""\b(?:secrets|vars|env)\.(\w+)|\b([A-Z][A-Z0-9_]*)["']?\s*[:=]""")
+NAME_IN_TEXT = re.compile(r"""\b(?:secrets|vars|env)(?:\.(\w+)|\[["'](\w+)["']\])|\b([A-Z][A-Z0-9_]*)["']?\s*[:=]""")
 
 
 def _redact(value):
@@ -65,7 +65,7 @@ def scan_names(names):
 
 
 def names_in(text):
-    return [a or b for a, b in NAME_IN_TEXT.findall(text)]
+    return ["".join(groups) for groups in NAME_IN_TEXT.findall(text)]
 
 
 def check_repo(repo):
