@@ -28,7 +28,7 @@ class BaseInputs(unittest.TestCase):
 
     def test_policy_parses_with_the_kit_yaml_parser_not_yq(self):
         with mock.patch.dict(os.environ, {"PATH": ""}):
-            policy = local_run.load_policy(make_repo.SRC / ".agent-kit" / "policy.yml")
+            policy, _ = local_run.read_base_inputs(make_repo.SRC)
         self.assertEqual(policy["app"]["start"]["cmd"], "python3 app.py")
         self.assertEqual(policy["app"]["db"], {"engine": "sqlite", "seed": ".agent-kit/seed/seed.sql"})
 
@@ -53,6 +53,53 @@ class BaseInputs(unittest.TestCase):
         subprocess.run([*git, "rm", "-q", "-r", ".agent-kit/journeys"], check=True)
         subprocess.run([*git, "commit", "-q", "-m", "drop journeys"], check=True)
         self.assertIsNone(local_run.journeys_sha(self.repo, "HEAD"))
+
+
+POLICY = (make_repo.SRC / ".agent-kit" / "policy.yml").read_text()
+
+
+def base_tree(tmp, policy_text, files=()):
+    root = Path(tmp) / "base"
+    for rel, text in [(".agent-kit/policy.yml", policy_text), *files]:
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text)
+    return root
+
+
+class PolicyPaths(unittest.TestCase):
+    """Policy paths go through the gate's normalizer; nothing outside the base tree is read."""
+
+    def test_escaping_seed_or_spec_fails_closed(self):
+        cases = {
+            "seed ..": POLICY.replace("seed: .agent-kit/seed/seed.sql", "seed: ../x"),
+            "seed absolute": POLICY.replace("seed: .agent-kit/seed/seed.sql", "seed: /etc/x"),
+            "spec ..": POLICY.replace("spec: .agent-kit/journeys/save-profile.spec.ts", "spec: ../x"),
+            "spec absolute": POLICY.replace("spec: .agent-kit/journeys/save-profile.spec.ts", "spec: /etc/x"),
+            "regress glob ..": POLICY + 'verify: {regress_glob: "../*.spec.ts"}\n',
+        }
+        for name, text in cases.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as tmp:
+                self.assertNotEqual(text, POLICY)
+                with self.assertRaisesRegex(SystemExit, "must stay inside the repo"):
+                    local_run.read_base_inputs(base_tree(tmp, text))
+
+    def test_dot_slash_seed_reads_the_normalized_file(self):
+        text = POLICY.replace("seed: .agent-kit/seed/seed.sql", "seed: ./docs/seed.md") + \
+            'verify: {regress_glob: ".//tests/regress/*.spec.ts"}\n'
+        with tempfile.TemporaryDirectory() as tmp:
+            policy, seed = local_run.read_base_inputs(base_tree(tmp, text, [("docs/seed.md", "select 1;")]))
+        self.assertEqual(policy["app"]["db"]["seed"], "docs/seed.md")
+        self.assertEqual(seed, b"select 1;")
+        self.assertEqual(local_run.regress_glob(policy), "tests/regress/*.spec.ts")
+
+    def test_symlink_out_of_the_base_tree_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = base_tree(tmp, POLICY)
+            (Path(tmp) / "secret").write_text("runner file")
+            (root / ".agent-kit/seed").mkdir(parents=True)
+            (root / ".agent-kit/seed/seed.sql").symlink_to(Path(tmp) / "secret")
+            with self.assertRaisesRegex(SystemExit, "outside the base tree"):
+                local_run.read_base_inputs(root)
 
 
 class CallerTemplate(unittest.TestCase):

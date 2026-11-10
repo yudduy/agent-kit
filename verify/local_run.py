@@ -28,7 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from gate import miniyaml  # noqa: E402
+from gate import policy as gate_policy  # noqa: E402
 from verify import evidence, observe  # noqa: E402
 
 PLAYWRIGHT_VERSION = "1.65.0"
@@ -56,18 +56,21 @@ def export_tree(repo, sha, dest):
     subprocess.run(["tar", "-x", "-C", str(dest)], input=archive.stdout, check=True)
 
 
-def load_policy(path):
+def base_file(base_dir, rel):
+    """A file named by an already-normalized policy path; a symlink out of the base tree fails closed."""
+    path = (base_dir / rel).resolve()
+    if not path.is_relative_to(base_dir.resolve()):
+        raise SystemExit(f"policy path {rel!r} resolves outside the base tree")
+    return path
+
+
+def read_base_inputs(base_dir):
+    """Parse base policy with the gate's parser, which validates it and normalizes every path."""
     try:
-        policy = miniyaml.loads(Path(path).read_text())
-    except miniyaml.YamlError as exc:
+        policy = gate_policy.parse((base_dir / ".agent-kit" / "policy.yml").read_text())
+    except gate_policy.PolicyError as exc:
         raise SystemExit(f"policy: {exc}")
-    app = policy.get("app") or {}
-    for key in ("start", "db"):
-        if not isinstance(app.get(key), dict):
-            raise SystemExit(f"policy: app.{key} is required")
-    if "port" not in app["start"] or "seed" not in app["db"]:
-        raise SystemExit("policy: app.start.port and app.db.seed are required")
-    return policy
+    return policy, base_file(base_dir, policy["app"]["db"]["seed"]).read_bytes()
 
 
 def regress_glob(policy):
@@ -264,7 +267,7 @@ class Playwright:
 
 def run_scenario(journey, app, dbs, pw, spec_src, out_dir):
     db_url = dbs.fresh()
-    spec = pw.stage("journeys", Path(journey["spec"]).name, spec_src / journey["spec"])
+    spec = pw.stage("journeys", Path(journey["spec"]).name, base_file(spec_src, journey["spec"]))
     ui_pass, trace = False, None
     if app.start(db_url):
         ui_pass, trace = pw.run(spec, app.url, journey["id"])
@@ -311,10 +314,9 @@ def verify(args):
     export_tree(repo, base_sha, base_dir)
     export_tree(repo, head_sha, head_dir)
 
-    policy = load_policy(base_dir / ".agent-kit" / "policy.yml")
+    policy, seed = read_base_inputs(base_dir)
     app_cfg = policy["app"]
     engine = db_engine(app_cfg["db"])
-    seed = (base_dir / app_cfg["db"]["seed"]).read_bytes()
     journeys = policy.get("journeys") or []
     if args.scenario:
         journeys = [j for j in journeys if j["id"] in args.scenario]

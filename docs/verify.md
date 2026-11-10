@@ -30,6 +30,7 @@ app:
 - `start.cmd`: optional, used only by local host-mode reruns (below). CI ignores it.
 - The kit passes two environment variables to the app: `PORT` and `DATABASE_URL`.
 - `db.seed`: a SQL file loaded into a fresh database before each scenario and each regression run. Synthetic data only (D9).
+- Every path in the policy (seed, journey specs, `verify.regress_glob`) is repo-relative. The kit reads the policy with the gate's parser, which drops `./` and `//` and rejects `..`, absolute paths and `\`. A seed or spec that is a symlink out of the base tree also stops the run.
 
 Regression specs the PR adds are found with an optional glob (quote it; the kit's YAML parser rejects a plain scalar starting with `*`):
 
