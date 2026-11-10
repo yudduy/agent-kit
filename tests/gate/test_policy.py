@@ -17,10 +17,32 @@ def with_line(old, new):
 class PolicyTest(unittest.TestCase):
     def test_record_example_is_valid(self):
         example = RECORD.read_text().split("### C1 Policy file v1\n```yaml\n")[1].split("```")[0]
-        example = example.replace('required_checks: ["ci / test"]', "required_checks: [{name: test, app: github-actions}]")  # Drift 6-7
         policy = parse(example.replace("<40-hex>", "a" * 40))
         self.assertEqual(policy["classes"]["billing-ui"], {"paths": ["src/billing/**"], "floor": "payments"})
         self.assertEqual(policy["journeys"][0]["data_assertions"][0]["expect"], [{"name": "Ada"}])
+        self.assertEqual(policy["required_checks"], [{"name": "test", "app": "github-actions"}])
+        self.assertEqual(policy["verify"], {"regress_glob": "tests/regress/*.spec.ts"})
+
+    def test_verify_fixture_policy_is_valid(self):
+        policy = parse((Path(__file__).resolve().parent / "fixtures" / "verify-policy.yml").read_text())
+        self.assertEqual(policy["app"]["start"]["cmd"], "python3 app.py")
+        self.assertEqual(policy["app"]["db"], {"engine": "sqlite", "seed": ".agent-kit/seed/seed.sql"})
+
+    def test_db_engine_and_verify_settings(self):
+        db = "  db: {image: postgres:16, seed: db/seed.sql}"
+        for ok in ("  db: {engine: sqlite, seed: db/seed.sql}", "  db: {engine: postgres, image: postgres:16, seed: db/seed.sql}"):
+            with self.subTest(ok):
+                parse(with_line(db, ok))
+        for bad in ("  db: {engine: postgres, seed: db/seed.sql}", "  db: {engine: mysql, image: mysql:8, seed: db/seed.sql}",
+                    "  db: {engine: sqlite}"):
+            with self.subTest(bad), self.assertRaises(PolicyError):
+                parse(with_line(db, bad))
+        self.assertEqual(parse(POLICY + 'verify: {regress_glob: "tests/regress/**/*.spec.ts"}\n')["verify"],
+                         {"regress_glob": "tests/regress/**/*.spec.ts"})
+        for bad in ("verify: {regress_glob: 3}\n", "verify: {other: x}\n", 'verify: {regress_glob: ""}\n'):
+            with self.subTest(bad), self.assertRaises(PolicyError):
+                parse(POLICY + bad)
+        parse(with_line("  start: {port: 3000, health: /healthz}", '  start: {cmd: "npm start", port: 3000, health: /healthz}'))
 
     def test_floor_class_cannot_be_put_on_auto_list(self):
         for floor in ("migrations", "auth", "payments", "tenancy", "destructive", "governance", "review"):
@@ -71,6 +93,16 @@ class MiniYamlTest(unittest.TestCase):
             miniyaml.loads("a: 'it''s'  # c\nb: \"x#y\"\nc: [1, 2.5, true, null, '*.md', {k: v}]\nd:\n- x\n- y: 1\n  z: []\n"),
             {"a": "it's", "b": "x#y", "c": [1, 2.5, True, None, "*.md", {"k": "v"}], "d": ["x", {"y": 1, "z": []}]},
         )
+
+    def test_escaped_quote_does_not_start_a_comment(self):
+        self.assertEqual(miniyaml.loads('build: "echo \\" # hi"  # real comment\n'), {"build": 'echo " # hi'})
+        self.assertEqual(miniyaml.loads('a: "back\\\\" # c\n'), {"a": "back\\"})
+        self.assertEqual(miniyaml.loads('build: echo \\"x\\" # comment\n'), {"build": 'echo \\"x\\"'})
+        self.assertEqual(miniyaml.loads("a: it's fine # c\nb: ['x', \"y\"] # c\n"), {"a": "it's fine", "b": ["x", "y"]})
+        self.assertEqual(miniyaml.loads('a: echo "hello # c\nb: x, "y # c\nc: x[1] "z # c\n'), {"a": 'echo "hello', "b": 'x, "y', "c": 'x[1] "z'})
+        self.assertEqual(miniyaml.loads('k: foo:"bar # c\n'), {"k": 'foo:"bar'})
+        self.assertEqual(miniyaml.loads('-"key: value # c\n'), {'-"key': "value"})
+        self.assertEqual(miniyaml.loads('- "a # b"  # c\n- {k: "v # w", l: [1, \'m # n\']}  # c\n'), ["a # b", {"k": "v # w", "l": [1, "m # n"]}])
 
     def test_rejects_unsupported_yaml(self):
         for text in ("a: &x 1\nb: *x\n", "a: |\n  text\n", "a: !tag x\n", "a: 1\na: 2\n", "a:\n\tb: 1\n", "a: [1,\n  2]\n", "a: 1\n---\nb: 2\n"):
