@@ -48,10 +48,16 @@ def steer(gh, client, ctl, issue, text):
     if not claims or claims[-1]["attempt"] not in runs:
         raise SystemExit("Issue #%d has no dispatcher run for its current claim; only the dispatcher starts runs." % issue)
     cursor_id = runs[claims[-1]["attempt"]]
-    status = client.latest_run(cursor_id)["status"]
-    if status not in cursor.ACTIVE:
-        raise SystemExit("The run for issue #%d is %s, not active; steering it would start a new run." % (issue, status))
-    return client.steer(cursor_id, text)
+    before = client.latest_run(cursor_id)
+    if before["status"] not in cursor.ACTIVE:
+        raise SystemExit("The run for issue #%d is %s, not active; steering it would start a new run." % (issue, before["status"]))
+    result = client.steer(cursor_id, text)
+    after = client.latest_run(cursor_id)
+    if after["id"] != before["id"]:
+        # shortcut: Cursor has no "steer only if running" precondition, so a run the steer started is cancelled at once.
+        client.cancel(cursor_id, after["id"])
+        raise SystemExit("The run for issue #%d ended before the steer landed; cancelled run %s it started." % (issue, after["id"]))
+    return result
 
 
 def main(argv=None):

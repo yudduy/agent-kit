@@ -12,13 +12,13 @@ from dispatcher.tick import Tick
 
 
 def pull(repo, settings):
-    rows = []
+    reads = []
     if "sentry" in settings:
-        rows += sources.sentry(settings["sentry"]["org"], settings["sentry"]["project"], os.environ["SENTRY_TOKEN"])
+        reads.append(sources.sentry(settings["sentry"]["org"], settings["sentry"]["project"], os.environ["SENTRY_TOKEN"]))
     if "datadog" in settings:
-        rows += sources.datadog(settings["datadog"]["query"], os.environ["DATADOG_API_KEY"], os.environ["DATADOG_APP_KEY"],
-                                settings["datadog"].get("site", "datadoghq.com"))
-    return rows
+        reads.append(sources.datadog(settings["datadog"]["query"], os.environ["DATADOG_API_KEY"], os.environ["DATADOG_APP_KEY"],
+                                     settings["datadog"].get("site", "datadoghq.com")))
+    return sources.Rows([r for rows in reads for r in rows], complete=all(rows.complete for rows in reads))
 
 
 def load(control, control_repo):

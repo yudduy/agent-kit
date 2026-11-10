@@ -62,6 +62,7 @@ class Tick:
         self.cost = config["run_cost_usd"]
 
     def run(self):
+        self.started = self.now()  # events after this may be missing from this tick's pull
         self.issues = self.gh.issues(self.ctl, m.INCIDENT, state="all")
         self.intake()
         self._comments = {}
@@ -91,7 +92,8 @@ class Tick:
         return self.now() - ts(issue["updated_at"]) > IDLE_CLOSE and self.repo_of(issue) in self.pulled and fp not in self.seen
 
     def close_idle(self, issue):
-        self.gh.comment(self.ctl, issue["number"], "Closing: no new event and no active run for 30 days. It reopens if the error comes back.")
+        self.gh.comment(self.ctl, issue["number"], m.json_marker("idle", {"pulled_at": self.started.isoformat()})
+                        + "\nClosing: no new event and no active run for 30 days. It reopens if the error comes back.")
         self.gh.update_issue(self.ctl, issue["number"], state="closed")
 
     # Intake (C3): one issue per fingerprint, reopened when a closed error comes back.
@@ -108,7 +110,8 @@ class Tick:
             except Exception as error:  # one broken source must not stop the tick
                 self.log("Could not read errors for %s: %s" % (repo, error))
                 continue
-            self.pulled.add(repo)
+            if getattr(rows, "complete", True):  # only a full read can show that an error stopped
+                self.pulled.add(repo)
             for row in rows:
                 fp = m.fingerprint(row["source"], row["src_id"])
                 self.seen.add(fp)
@@ -117,8 +120,13 @@ class Tick:
                     by_fp[fp] = issue = self.open_incident(repo, fp, row)
                     self.issues.append(issue)
                 elif issue["state"] == "closed" and m.IGNORED not in labels_of(issue) and row["last_seen"] \
-                        and ts(row["last_seen"]) > ts(issue["closed_at"]):
+                        and ts(row["last_seen"]) > self.closed_cutoff(issue):
                     self.reopen(issue, row)
+
+    def closed_cutoff(self, issue):
+        """Events after this reopen a closed issue: its close time, or for an idle close the start of that tick's pull."""
+        idle = [f for c in self.gh.comments(self.ctl, issue["number"]) if mine(c) and (f := m.parse("idle", c["body"]))]
+        return ts(idle[-1]["pulled_at"]) if idle else ts(issue["closed_at"])
 
     def open_incident(self, repo, fp, row):
         body = "\n".join([m.intake(fp, row["source"], row["src_id"], row["first_seen"], repo),

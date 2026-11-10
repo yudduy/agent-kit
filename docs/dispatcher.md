@@ -28,7 +28,8 @@ It reads repo policies with the gate's parser, so it needs `gate/` on the same k
 6. After `max_attempts` failed attempts, or when the daily spend cap is hit: a comment, `agent:needs-human`, and an
    assignment to `escalate_to` (GitHub emails the assignee). Nothing writes to Slack (INV-10).
 7. An open incident with no active run, no update for 30 days, and no event in this tick's pull is closed with a
-   comment. It is not closed when its repo's source could not be read, and it reopens if the error comes back.
+   comment. It is not closed when its repo's source could not be read in full (an error, or the 10-request limit),
+   and it reopens if an event arrives after that tick's pull began.
 
 Default models come from `models.default`. A decision may name another model; it is used only if it is in
 `models.included` or an approver from the repo's policy added `agent:paid-ok` (checked from the issue's events).
@@ -88,7 +89,9 @@ CURSOR_API_KEY=… python3 -m dispatcher.macmini steer 12 --text "Also cover the
 
 The helper never creates runs; only the dispatcher does (D5). `steer` follows up only the run recorded by the
 dispatcher for the issue's current claim (after any reopen), and only while that run is active: a steer to an idle
-agent would become its next run. Any other run marker is refused.
+agent would become its next run. Any other run marker is refused. Cursor has no "steer only if running" option, so
+if the run ends between the check and the steer and the steer starts a new run, the helper cancels that run at once
+and reports it.
 
 ## Cursor
 

@@ -54,6 +54,8 @@ class FakeGitHub:
     def update_issue(self, repo, number, **fields):
         self.issues_[number].update(fields)
         self.issues_[number]["updated_at"] = self.clock.iso()
+        if fields.get("state") == "closed":  # the server closes a moment after the tick's pull began
+            self.issues_[number]["closed_at"] = (self.clock.t + timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     def labels(self, number):
         return {l["name"] for l in self.issues_[number]["labels"]}

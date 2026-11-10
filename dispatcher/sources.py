@@ -11,6 +11,14 @@ DATADOG_LIMIT = 100  # documented maximum issues per search
 MAX_PAGES = 10  # per source and repo per tick
 
 
+class Rows(list):
+    """Error rows; `complete` is False when a page or window limit cut the read short."""
+
+    def __init__(self, rows=(), complete=True):
+        super().__init__(rows)
+        self.complete = complete
+
+
 def _ok(name, status, data):
     if status != 200:
         raise RuntimeError("%s returned %s" % (name, status))
@@ -21,7 +29,7 @@ def sentry(org, project, token, send=http.send):
     """Unresolved Sentry issues seen in the last 24 h (GET /api/0/organizations/{org}/issues/), following the
     `Link: rel="next"; results="true"` cursor for at most MAX_PAGES pages."""
     query = urllib.parse.urlencode({"project": project, "query": "is:unresolved", "statsPeriod": "24h", "limit": 100})
-    url, rows = SENTRY % (org, query), []
+    url, rows = SENTRY % (org, query), Rows()
     for _ in range(MAX_PAGES):
         status, headers, data = send("GET", url, {"Authorization": "Bearer " + token})
         rows += [{"source": "sentry", "src_id": str(i["id"]), "title": i.get("title") or "Unnamed error",
@@ -30,8 +38,9 @@ def sentry(org, project, token, send=http.send):
                  for i in _ok("Sentry", status, data)]
         nxt = re.search(r'<([^>]+)>;\s*rel="next";\s*results="true"', (headers or {}).get("Link") or (headers or {}).get("link") or "")
         if not nxt:
-            break
+            return rows
         url = nxt.group(1)
+    rows.complete = False
     return rows
 
 
@@ -59,7 +68,7 @@ def datadog(query, api_key, app_key, site="datadoghq.com", send=http.send, now=t
                                        "where": a.get("service") or "", "link": "https://app.%s/error-tracking?issueId=%s" % (site, issue_id),
                                        "count": (result.get("attributes") or {}).get("total_count"),
                                        "first_seen": _iso(a.get("first_seen")), "last_seen": _iso(a.get("last_seen"))})
-    return list(rows.values())
+    return Rows(rows.values(), complete=not windows)
 
 
 def _iso(ms):

@@ -35,7 +35,8 @@ class MacMiniHelper(unittest.TestCase):
 
     def client(self, status="RUNNING"):
         client = mock.Mock()
-        client.latest_run.return_value = {"status": status}
+        client.latest_run.return_value = {"id": "run-1", "status": status}
+        client.steer.return_value = {"delivery": "steered", "runId": "run-1"}
         return client
 
     def test_steer_follows_up_the_current_claimed_run(self):
@@ -67,6 +68,17 @@ class MacMiniHelper(unittest.TestCase):
         with self.assertRaises(SystemExit):
             macmini.steer(self.gh, client, CTL, 2, "hi")  # the new claim has no run yet
         client.steer.assert_not_called()
+
+    def test_a_steer_that_lands_after_the_run_ended_has_its_new_run_cancelled(self):
+        self.dispatcher_says("claim", {"attempt": "a", "at": "x"})
+        self.dispatcher_says("run", {"attempt": "a", "cursor_id": "bc-a"})
+        client = mock.Mock()
+        client.latest_run.side_effect = [{"id": "run-1", "status": "RUNNING"}, {"id": "run-2", "status": "CREATING"}]
+        client.steer.return_value = {"delivery": "queued"}
+        with self.assertRaises(SystemExit) as stop:
+            macmini.steer(self.gh, client, CTL, 2, "hi")
+        client.cancel.assert_called_once_with("bc-a", "run-2")
+        self.assertIn("cancelled", str(stop.exception))
 
     def test_steer_refuses_an_idle_agent_because_that_would_start_a_run(self):
         self.dispatcher_says("claim", {"attempt": "a", "at": "x"})

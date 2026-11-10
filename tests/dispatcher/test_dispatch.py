@@ -368,6 +368,34 @@ class IdleClose(unittest.TestCase):
         self.assertEqual(w.gh.issues_[1]["state"], "open", "the error is still in this tick's pull")
 
 
+class IdleCloseEdges(unittest.TestCase):
+    def test_a_truncated_pull_never_closes_an_incident(self):
+        w = World()
+        w.tick()
+        w.cursor_server.run_status = "FINISHED"
+        w.tick()
+        w.clock.advance(31 * 24 * 60)
+        w.rows = lambda repo, s: sources.Rows([], complete=False)
+        w.tick()
+        self.assertEqual(w.gh.issues_[1]["state"], "open")
+
+    def test_an_event_between_the_pull_and_the_close_reopens_it(self):
+        w = World()
+        w.tick()
+        w.cursor_server.run_status = "FINISHED"
+        w.tick()
+        w.clock.advance(31 * 24 * 60)
+        pulled_at = w.clock.iso()
+        w.rows = lambda repo, s: []
+        w.tick(1)
+        self.assertEqual(w.gh.issues_[1]["state"], "closed")
+        self.assertGreater(w.gh.issues_[1]["closed_at"], pulled_at)
+        event = pulled_at.replace(":00Z", ":30Z")  # after the pull began, before the close landed
+        w.rows = lambda repo, s: sources.sentry("acme", "shop", "t", send=sentry_row("yudduy/shop", lastSeen=event))
+        w.tick()
+        self.assertEqual(w.gh.issues_[1]["state"], "open", "an event after the pull started reopens an idle-closed issue")
+
+
 class Pagination(unittest.TestCase):
     def test_sentry_follows_next_links_until_results_run_out(self):
         pages = {None: (["1", "2"], True), "c1": (["3"], False)}
@@ -384,9 +412,19 @@ class Pagination(unittest.TestCase):
         self.assertEqual([r["src_id"] for r in sources.sentry("acme", "shop", "t", send=send)], ["1", "2", "3"])
         self.assertEqual(calls, [None, "c1"])
 
-    def test_sentry_stops_at_the_page_limit(self):
+    def test_sentry_stops_at_the_page_limit_and_says_it_is_incomplete(self):
         send = lambda *a, **k: (200, {"Link": '<https://sentry.io/n?cursor=c>; rel="next"; results="true"; cursor="c"'}, [fixture("sentry_issues.json")[0]])
-        self.assertEqual(len(sources.sentry("acme", "shop", "t", send=send)), sources.MAX_PAGES)
+        rows = sources.sentry("acme", "shop", "t", send=send)
+        self.assertEqual(len(rows), sources.MAX_PAGES)
+        self.assertFalse(rows.complete)
+        one = sources.sentry("acme", "shop", "t", send=sentry_row())
+        self.assertTrue(one.complete)
+
+    def test_datadog_that_keeps_filling_windows_is_incomplete(self):
+        def send(method, url, headers=None, body=None):
+            ids = ["%d-%d" % (body["data"]["attributes"]["from"], n) for n in range(100)]
+            return 200, {}, {"data": [{"id": i, "attributes": {}} for i in ids], "included": []}
+        self.assertFalse(sources.datadog("q", "k", "a", send=send, now=lambda: 1762744100).complete)
 
     def test_datadog_splits_a_full_window_and_dedupes(self):
         def result(i):
