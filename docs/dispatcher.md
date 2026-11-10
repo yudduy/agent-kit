@@ -33,6 +33,7 @@ Default models come from `models.default`. A decision may name another model; it
 {
   "v": 1,
   "control_repo": "yudduy/agent-control",
+  "dispatcher_login": "github-actions[bot]",
   "heartbeat_issue": 1,
   "deciders": ["yudduy-mini"],
   "escalate_to": "yudduy",
@@ -46,7 +47,8 @@ Default models come from `models.default`. A decision may name another model; it
 }
 ```
 
-`run_cost_usd` is a flat estimate per run, because Cursor reports tokens, not dollars. `agent_logins` lists the bot
+`dispatcher_login` is the author of the workflow token's writes; claim, run and reopen markers and incident issues
+from any other login are ignored. `run_cost_usd` is a flat estimate per run, because Cursor reports tokens, not dollars. `agent_logins` lists the bot
 identity that authors agent PRs (O2), for the harvest.
 
 ## Secrets (environment `dispatch`)

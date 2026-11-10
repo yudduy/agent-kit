@@ -32,7 +32,7 @@ class Tick:
         self.config, self.gh, self.cursor, self.pull, self.log = config, gh, cursor, pull, log
         self.reader = reader or gh
         self.now, self.new_id = now, new_id
-        self.ctl = config["control_repo"]
+        self.ctl, self.me = config["control_repo"], config["dispatcher_login"]
         self.kit = config["caps"]
         self.cost = config["run_cost_usd"]
 
@@ -104,7 +104,7 @@ class Tick:
 
     # Comment-derived state. Claim, run and reopen markers count only from the dispatcher's own login.
     def mine(self, item):
-        return (item.get("user") or {}).get("login") == self.config["dispatcher_login"]
+        return (item.get("user") or {}).get("login") == self.me
 
     def comments(self, issue, since_reopen=True):
         if issue["number"] not in self._comments:
