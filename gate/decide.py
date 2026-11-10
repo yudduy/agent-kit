@@ -74,6 +74,8 @@ def decide(f):
     auto = policy is not None and cls in policy["auto_merge"]
     needs_human = [] if auto or approval else [f"class {cls} needs a human approval on this commit"]
     reasons = blocking + needs_human
+    counts = regression_counts(f)
+    proven = cls in AUTO_ALLOWED or (counts is not None and 0 < counts[0] == counts[1])  # error fixes need a regression test
     return {
         "v": 1,
         "repo": f.repo,
@@ -88,19 +90,36 @@ def decide(f):
         "required_checks": required,
         "approval": approval,
         "conclusion": "failure" if reasons else "success",
-        "shadow": "would_not" if blocking else "would_merge",
+        "shadow": "would_merge" if proven and not blocking else "would_not",
         "reasons": reasons,
     }
 
 
-def summary(record):
-    """Check-run title and summary; the summary ends with the C5 JSON block."""
+def regression_counts(f):
+    """(passing, total) agent-written regression tests in the evidence, or None if unreadable.
+
+    They are untrusted: they feed the shadow verdict and the summary, never the conclusion (C2).
+    """
+    try:
+        entries = json.loads(f.evidence)["regression"]
+        return sum(e["fail_on_base"] is True and e["pass_on_head"] is True for e in entries), len(entries)
+    except (TypeError, ValueError, KeyError):
+        return None
+
+
+def summary(record, regression=None):
+    """Check-run title and summary; the summary ends with the C5 JSON block. regression: regression_counts()."""
     allowed = record["conclusion"] == "success"
     title = "Merge allowed" if allowed else f"Blocked: {record['reasons'][0]}"[:120]
     lines = ["**Merge allowed.**" if allowed else "**Merge blocked.**", ""]
     lines += [f"- {reason}" for reason in record["reasons"]]
     lines.append(f"- Change class: {record['class']}.")
     if record["class"] not in FLOOR_CLASSES + AUTO_ALLOWED:  # code changes such as error fixes
+        if regression and regression[1]:
+            lines.append(f"- Regression tests written by the agent (not trusted on their own): {regression[0]} of "
+                         f"{regression[1]} fail before the fix and pass after it.")
+        else:
+            lines.append("- No regression test from the agent shows the fix works.")
         lines.append(
             "- Shadow verdict: if this class were on the auto list, the gate "
             + ("would merge it." if record["shadow"] == "would_merge" else "would not merge it.")

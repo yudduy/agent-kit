@@ -87,6 +87,12 @@ class PolicyTest(unittest.TestCase):
                 parse(text)
 
 
+class LayoutTest(unittest.TestCase):
+    def test_tests_is_a_regular_package_for_root_discovery(self):
+        import importlib
+        self.assertIsNotNone(importlib.import_module("tests").__file__)
+
+
 class MiniYamlTest(unittest.TestCase):
     def test_scalars_and_flow(self):
         self.assertEqual(

@@ -19,7 +19,7 @@ import traceback
 import zipfile
 from urllib.parse import quote
 
-from gate.decide import Facts, decide, summary, record_from_summary
+from gate.decide import Facts, decide, record_from_summary, regression_counts, summary
 from gate.github import Fixture, GitHub, NotFound, installation_client
 from gate.policy import PolicyError, parse
 
@@ -73,7 +73,7 @@ def gate_pr(client, repo, pr, paused, app_id, log):
     record = decide(facts)
     if record != previous:
         log(record)
-        title, text = summary(record)
+        title, text = summary(record, regression_counts(facts))
         client.post(f"/repos/{repo}/check-runs", {
             "name": CHECK_NAME,
             "head_sha": record["head_sha"],

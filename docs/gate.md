@@ -97,7 +97,7 @@ While paused the gate still posts verdicts, but every check is `failure` with th
 ## Run locally
 
 ```sh
-python3 -m unittest discover -s tests/gate -t .           # all gate tests, standard library only
+python3 -m unittest discover -s tests -t .                # all tests from the repo root, standard library only
 python3 -m gate.main --dry-run tests/gate/fixtures/tick    # one tick against JSON fixtures; prints the writes
 ```
 
