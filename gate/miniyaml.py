@@ -43,10 +43,14 @@ def loads(text):
 
 
 def _strip_comment(line):
-    quote = None
+    quote, escaped = None, False
     for i, ch in enumerate(line):
-        if quote:
-            if ch == quote:
+        if escaped:
+            escaped = False
+        elif quote:
+            if ch == "\\" and quote == '"':
+                escaped = True
+            elif ch == quote:
                 quote = None
         elif ch in "\"'":
             quote = ch

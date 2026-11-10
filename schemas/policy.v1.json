@@ -20,6 +20,7 @@
           "additionalProperties": false,
           "required": ["port", "health"],
           "properties": {
+            "cmd": {"type": "string", "minLength": 1},
             "port": {"type": "integer", "minimum": 1, "maximum": 65535},
             "health": {"type": "string", "pattern": "^/"}
           }
@@ -27,8 +28,13 @@
         "db": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["image", "seed"],
-          "properties": {"image": {"type": "string"}, "seed": {"type": "string"}}
+          "required": ["seed"],
+          "anyOf": [{"required": ["image"]}, {"required": ["engine"], "properties": {"engine": {"const": "sqlite"}}}],
+          "properties": {
+            "engine": {"enum": ["postgres", "sqlite"]},
+            "image": {"type": "string", "minLength": 1},
+            "seed": {"type": "string", "minLength": 1}
+          }
         }
       }
     },
@@ -99,6 +105,11 @@
           }
         }
       }
+    },
+    "verify": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"regress_glob": {"type": "string", "minLength": 1}}
     },
     "caps": {
       "type": "object",
