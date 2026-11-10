@@ -1,0 +1,6 @@
+[
+  {"id": "4512345678", "shortId": "SHOP-1A", "title": "TypeError: Cannot read properties of undefined (reading 'name')",
+   "culprit": "src/profile/save.ts in saveProfile", "permalink": "https://acme.sentry.io/issues/4512345678/",
+   "count": "512", "userCount": 31, "firstSeen": "2026-11-10T03:00:00Z", "lastSeen": "2026-11-10T03:04:10Z",
+   "status": "unresolved", "level": "error", "project": {"id": "11", "slug": "shop", "name": "shop"}}
+]

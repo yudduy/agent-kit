@@ -1,0 +1,6 @@
+{"data": [{"id": "c1726a66-1f64-11ee-b338-da7ad0900002", "type": "error_tracking_search_result",
+           "attributes": {"impacted_sessions": 0, "impacted_users": 3, "total_count": 42},
+           "relationships": {"issue": {"data": {"id": "c1726a66-1f64-11ee-b338-da7ad0900002", "type": "issue"}}}}],
+ "included": [{"id": "c1726a66-1f64-11ee-b338-da7ad0900002", "type": "issue",
+               "attributes": {"error_type": "builtins.KeyError", "error_message": "'profile_id'", "service": "shop-api",
+                              "first_seen": 1762743600000, "last_seen": 1762744000000, "state": "OPEN", "platform": "BACKEND"}}]}

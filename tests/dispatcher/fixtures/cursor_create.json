@@ -1,0 +1,8 @@
+{"agent": {"id": "bc-00000000-0000-0000-0000-000000000001", "name": "Add README with setup instructions", "status": "ACTIVE",
+           "env": {"type": "cloud"}, "repos": [{"url": "https://github.com/your-org/your-repo", "startingRef": "main"}],
+           "workOnCurrentBranch": false, "autoCreatePR": true,
+           "url": "https://cursor.com/agents/bc-00000000-0000-0000-0000-000000000001",
+           "createdAt": "2026-04-13T18:30:00.000Z", "updatedAt": "2026-04-13T18:30:00.000Z",
+           "latestRunId": "run-00000000-0000-0000-0000-000000000001"},
+ "run": {"id": "run-00000000-0000-0000-0000-000000000001", "agentId": "bc-00000000-0000-0000-0000-000000000001",
+         "status": "CREATING", "createdAt": "2026-04-13T18:30:00.000Z", "updatedAt": "2026-04-13T18:30:00.000Z"}}
