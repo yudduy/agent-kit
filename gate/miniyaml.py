@@ -57,7 +57,8 @@ def _strip_comment(line):
             continue
         if ch == "#" and (i == 0 or line[i - 1] in " \t"):
             return line[:i]
-        value_start = prev is None or prev == ":" or (prev == "-" and prev_i == first) or (depth and prev in "[{,")
+        spaced = prev_i < i - 1  # `:` and `- ` start a value only when whitespace follows them
+        value_start = prev is None or (spaced and (prev == ":" or (prev == "-" and prev_i == first))) or (depth and prev in "[{,")
         if ch in "\"'" and value_start:
             quote = ch
         elif ch in "[{" and value_start:
