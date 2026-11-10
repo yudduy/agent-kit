@@ -125,10 +125,11 @@ class Tick:
 
     def closed_cutoff(self, issue):
         """Events after this reopen a closed issue: its close time, or for an idle close the start of that tick's pull."""
-        closed = ts(issue["closed_at"])
-        idle = [f for c in self.gh.comments(self.ctl, issue["number"]) if mine(c) and (f := m.parse("idle", c["body"]))
-                and timedelta(0) <= closed - ts(c["created_at"]) < CLAIM_TIMEOUT]  # the marker written for this closure
-        return ts(idle[-1]["pulled_at"]) if idle else closed
+        closes = [e for e in self.gh.events(self.ctl, issue["number"]) if e.get("event") == "closed"]
+        if not closes or not mine({"user": closes[-1]["actor"]}):  # the latest close was not the dispatcher's idle close
+            return ts(issue["closed_at"])
+        idle = [f for c in self.gh.comments(self.ctl, issue["number"]) if mine(c) and (f := m.parse("idle", c["body"]))]
+        return ts(idle[-1]["pulled_at"]) if idle else ts(issue["closed_at"])
 
     def open_incident(self, repo, fp, row):
         body = "\n".join([m.intake(fp, row["source"], row["src_id"], row["first_seen"], repo),

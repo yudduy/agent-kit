@@ -412,7 +412,7 @@ class IdleMarkerScope(unittest.TestCase):
         self.assertEqual(w.gh.issues_[1]["state"], "open")
         w.tick()  # its new run finishes
         w.clock.advance(60)
-        w.gh.issues_[1].update(state="closed", closed_at=w.clock.iso())  # a person closes it after the fix
+        w.gh.close(1, "yudduy")  # a person closes it after the fix
         w.tick()
         self.assertEqual(w.gh.issues_[1]["state"], "closed", "the same old event does not reopen a manual close")
 
@@ -424,9 +424,9 @@ class IdleMarkerScope(unittest.TestCase):
         w.clock.advance(31 * 24 * 60)
         w.rows = lambda repo, s: []
         w.tick()
-        event = w.clock.iso()
-        w.clock.advance(60)
-        w.gh.issues_[1].update(state="closed", closed_at=w.clock.iso())  # a person reopened and closed it again
+        event = w.clock.iso().replace(":00Z", ":30Z")
+        w.clock.advance(1)
+        w.gh.close(1, "yudduy")  # a person reopened and closed it again, 6 minutes after the idle close
         w.rows = lambda repo, s: sources.sentry("acme", "shop", "t", send=sentry_row("yudduy/shop", lastSeen=event))
         w.tick()
         self.assertEqual(w.gh.issues_[1]["state"], "closed")
