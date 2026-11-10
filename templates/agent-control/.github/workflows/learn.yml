@@ -1,0 +1,76 @@
+# agent-kit learning loop (design D10).
+# Weekly `harvest`: reads onboarded repos, appends C6 cases to the decisions-log branch, and starts one Cursor
+# proposal run per class that reached 2 cases (each pushes a `learn/<class>` branch).
+# Daily `judge`: blind review of skill-text edits on open learn/* PRs by an OpenAI model, verdict posted on the PR.
+# Environment `learn` holds:
+#   AGENT_KIT_READ_TOKEN     fine-grained, read-only: Contents, Issues, Pull requests on onboarded repos and agent-control
+#   AGENT_KIT_COMMENT_TOKEN  fine-grained: Contents and Pull requests read, Issues write, on onboarded repos (no approve, no merge)
+#   CURSOR_API_KEY, OPENAI_API_KEY; variable AGENT_KIT_JUDGE_MODEL (an OpenAI model id). Never the gate App key.
+name: learn
+on:
+  schedule:
+    - cron: "0 9 * * 1"
+    - cron: "0 10 * * *"
+  workflow_dispatch:
+concurrency:
+  group: agent-kit-learn
+  cancel-in-progress: false
+permissions:
+  contents: write
+jobs:
+  harvest:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 9 * * 1'
+    runs-on: ubuntu-24.04
+    environment: learn
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          path: control
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: decisions-log
+          path: log
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: yudduy/agent-kit
+          ref: {{KIT_REF}}
+          path: kit
+          persist-credentials: false
+      - name: Harvest and propose
+        working-directory: kit
+        env:
+          GH_TOKEN: ${{ secrets.AGENT_KIT_READ_TOKEN }}
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+        run: python3 -m learning.harvest --control ../control --cases ../log/learning/cases.jsonl --propose
+      - name: Append cases to decisions-log
+        working-directory: log
+        run: |
+          git add learning/cases.jsonl
+          git diff --cached --quiet && exit 0
+          git -c user.name="agent-kit learn" -c user.email="actions@users.noreply.github.com" commit -m "Add learning cases"
+          git push origin HEAD:decisions-log
+  judge:
+    runs-on: ubuntu-24.04
+    environment: learn
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          path: control
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: yudduy/agent-kit
+          ref: {{KIT_REF}}
+          path: kit
+          persist-credentials: false
+      - name: Blind review of skill-text edits
+        working-directory: kit
+        env:
+          GH_TOKEN: ${{ secrets.AGENT_KIT_COMMENT_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python3 -m learning.judge --control ../control --model "${{ vars.AGENT_KIT_JUDGE_MODEL }}"
