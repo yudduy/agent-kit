@@ -55,12 +55,21 @@ it can switch existing tests off, so it counts as a higher-level fix and gets th
 
 The same workflow has a second required job, `learning-proof`, which runs on every PR and checks only `learn/*`
 branches with `learning/proof.py`. Each test or eval file the PR adds, and each `.jsonl` case list it appends to, is
-copied into a checkout of the base commit and run there (it must fail), then run on the head commit (it must pass);
-then the full suite runs on head (it must pass). A case whose added lines hold no assertion counts as a failed proof,
-so an empty spec proves nothing. The job's summary and a notice give the counts. The repo sets the commands as
-Actions variables: `AGENT_KIT_CASE_CMD` (with `{case}` for the case path), `AGENT_KIT_SUITE_CMD`, and optionally
-`AGENT_KIT_TEST_SETUP` (run in both checkouts first). Unset commands fail the check on `learn/*` PRs. This job runs PR
-code, so it has only read permissions and no secrets.
+copied into a checkout of the base commit and run there, then run on the head commit; then the full suite runs on head.
+
+| Run | Must show |
+|---|---|
+| Case on base | At least one test fails with an `AssertionError` (or `pytest.fail`), no test fails any other way, and there is no collection, setup or teardown error. A missing import or a syntax error is not proof. |
+| Case on head | Every test passes, with at least one assertion executed. |
+| Full suite on head | Exit 0. |
+
+Supported runner: pytest only, with plain `assert` or unittest `assert*` methods. The kit loads its plugin
+`learning/pytest_plugin/agent_kit_proof.py` through `PYTEST_ADDOPTS`, and the plugin writes each test's outcome and the
+number of assertions that passed. A case command that writes no report (Jest, Vitest, Playwright, a plain script)
+fails the proof, because their JSON reporters give no executed-assertion count. The job's summary and a notice give
+the counts. The repo sets the commands as Actions variables: `AGENT_KIT_CASE_CMD` (a pytest command with `{case}`),
+`AGENT_KIT_SUITE_CMD`, and optionally `AGENT_KIT_TEST_SETUP` (run in both checkouts first). This job runs PR code, so it
+has only read permissions and no secrets; PR code runs in the same process as the plugin, so a human still reviews.
 
 ## Blind review of skill text
 

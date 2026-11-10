@@ -1,30 +1,34 @@
 #!/usr/bin/env python3
 """INV-13 proof for learning PRs (head branch `learn/*`), run by each repo's `learning-proof` check.
 
-  PYTHONPATH=kit python3 -m learning.proof --files files.jsonl --base base --head head --case-cmd 'npx playwright test {case}' --suite-cmd 'npm test'
-      [--setup 'npm ci'] [--summary "$GITHUB_STEP_SUMMARY"]
+  PYTHONPATH=kit python3 -m learning.proof --files files.jsonl --base base --head head --case-cmd 'python -m pytest {case}'
+      --suite-cmd 'python -m pytest' [--setup 'pip install -r requirements.txt'] [--summary "$GITHUB_STEP_SUMMARY"]
 
 A case is each test or eval file the PR adds, or a `.jsonl` case list it appends to (pathcheck's patterns). Each case
-is copied into the base tree and run there (it must fail), then run in the head tree (it must pass); then the full
-suite runs on head (it must pass). A case whose added lines hold no assertion is a failed proof, so an empty spec
-proves nothing. Exit 0 only if there is at least one case and every step holds.
+is copied into the base tree and run there, then run in the head tree; then the full suite runs on head.
+On base the case must fail by an assertion: at least one test fails with an AssertionError (or pytest.fail), and no
+test fails any other way, with no collection, setup or teardown error, so a missing import or a syntax error is not
+proof. On head every test must pass, with at least one assertion executed. The full suite must pass on head.
+
+Supported runner: pytest only (plain `assert`, or unittest `assert*` methods run under pytest). The case command must
+run pytest; the kit's plugin (`learning/pytest_plugin/agent_kit_proof.py`, loaded through PYTEST_ADDOPTS) reports
+each outcome and the assertions passed. A command that writes no report (Jest, Vitest, Playwright, plain scripts)
+fails the proof: their JSON reporters give no executed-assertion count to check.
 """
 import argparse
 import json
-import re
+import os
 import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 from fnmatch import fnmatch
 from pathlib import Path
 
 from learning.pathcheck import CASES, HOOKS, load
 
-ASSERTION = re.compile(r"\b(assert\w*|expect\w*|should|require\.\w+|t\.(Error|Fatal)\w*)\b|\.to[A-Z]\w*\(")
-COMMENT = re.compile(r"^\s*(#|//|/?\*)")
-# String literals, matched left to right: triple-quoted and backtick strings may span lines, quoted strings may not.
-STRING = re.compile(r'''"""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\'|`(\\[\s\S]|[^`\\])*`|"(\\.|[^"\\\n])*"|'(\\.|[^'\\\n])*\'''')
+PLUGIN = Path(__file__).with_name("pytest_plugin")
 
 
 def cases(files):
@@ -34,34 +38,45 @@ def cases(files):
         if any(fnmatch(path, p) for p in HOOKS) or not any(fnmatch(path, p) for p in CASES):
             continue
         if f["status"] == "added" or (f["status"] == "modified" and path.endswith(".jsonl")):
-            out.append((path, [l[1:] for l in (f.get("patch") or "").splitlines() if l.startswith("+") and not l.startswith("+++")]))
+            out.append(path)
     return out
 
 
-def asserts(lines, jsonl=False):
-    """Code: an assertion outside strings and comments. Case list: every added line has an `expect*` key."""
-    if jsonl:
-        rows = [l for l in lines if l.strip()]
-        return bool(rows) and all(expects(l) for l in rows)
-    code = "\n".join(l for l in lines if not COMMENT.match(l))
-    return bool(ASSERTION.search(STRING.sub('""', code)))
-
-
-def expects(line):
-    try:
-        row = json.loads(line)
-    except ValueError:
-        return False
-    return isinstance(row, dict) and any(k.startswith("expect") for k in row)
-
-
-def sh(command, cwd, timeout):
+def sh(command, cwd, timeout, env=None):
     print("$ (%s) %s" % (cwd.name, command))
     try:
-        return subprocess.run(command, shell=True, cwd=cwd, timeout=timeout).returncode
+        return subprocess.run(command, shell=True, cwd=cwd, timeout=timeout, env=env).returncode
     except subprocess.TimeoutExpired:
         print("timed out after %ds" % timeout)
         return None
+
+
+def run_case(command, tree, timeout):
+    """(exit code, pytest report or None) for one case run with the kit's plugin loaded."""
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "report.json"
+        env = dict(os.environ, AGENT_KIT_PROOF_REPORT=str(out),
+                   PYTHONPATH=os.pathsep.join(filter(None, [str(PLUGIN), os.environ.get("PYTHONPATH")])),
+                   PYTEST_ADDOPTS=" ".join(filter(None, [os.environ.get("PYTEST_ADDOPTS"),
+                                                         "-p agent_kit_proof -o enable_assertion_pass_hook=true"])))
+        code = sh(command, tree, timeout, env)
+        return code, json.loads(out.read_text()) if out.exists() else None
+
+
+def verdict(code, result, on_base):
+    """'' when the run proves its side, else the reason it does not."""
+    if result is None:
+        return "timed out" if code is None else "wrote no pytest report (only pytest is supported)"
+    outcomes = [t["outcome"] for t in result["tests"]]
+    if result["errors"]:
+        return "collection, setup or teardown error: " + "; ".join(result["errors"][:3])
+    if on_base:
+        if "assertion" not in outcomes or set(outcomes) - {"assertion", "passed"} or code == 0:
+            return "does not fail by an assertion (outcomes: %s)" % (", ".join(outcomes) or "no tests")
+        return ""
+    if not outcomes or set(outcomes) != {"passed"} or code != 0:
+        return "does not pass (outcomes: %s)" % (", ".join(outcomes) or "no tests")
+    return "" if result["assertions"] else "passes without executing an assertion"
 
 
 def prove(files, base, head, case_cmd, suite_cmd, setup=None, timeout=900):
@@ -74,26 +89,21 @@ def prove(files, base, head, case_cmd, suite_cmd, setup=None, timeout=900):
     if not found:
         print("FAIL the PR adds no test or eval case, so nothing proves the change")
         return False, counts
-    runnable = []
-    for path, added in found:
-        if asserts(added, jsonl=path.endswith(".jsonl")):
-            runnable.append(path)
-            (base / path).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(head / path, base / path)
-        else:
-            counts["no_assertion"] += 1
-            print("FAIL %s: its added lines hold no assertion" % path)
+    for path in found:
+        (base / path).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(head / path, base / path)
     # Every base run ends before head setup or head runs start, so code only on head cannot change the base results.
-    for tree, key, want in ((base, "failed_on_base", False), (head, "passed_on_head", True)):
+    for tree, key, on_base in ((base, "failed_on_base", True), (head, "passed_on_head", False)):
         if setup and sh(setup, tree, timeout) != 0:
             print("FAIL setup failed in %s" % tree.name)
             return False, counts
-        for path in runnable:
-            code = sh(case_cmd.replace("{case}", shlex.quote(path)), tree, timeout)
-            good = code == 0 if want else code not in (0, None)
-            counts[key] += good
-            print("%s %s on %s: %s" % ("OK" if good else "FAIL", path, tree.name,
-                                       "timed out" if code is None else "passes" if code == 0 else "fails"))
+        for path in found:
+            code, result = run_case(case_cmd.replace("{case}", shlex.quote(path)), tree, timeout)
+            reason = verdict(code, result, on_base)
+            counts[key] += not reason
+            if not on_base and result and not result["assertions"]:
+                counts["no_assertion"] += 1
+            print("%s %s on %s%s" % ("FAIL" if reason else "OK", path, tree.name, ": " + reason if reason else ""))
     counts["suite"] = "pass" if sh(suite_cmd, head, timeout) == 0 else "fail"
     n = counts["cases"]
     ok = counts["failed_on_base"] == n and counts["passed_on_head"] == n and counts["suite"] == "pass"
@@ -102,7 +112,7 @@ def prove(files, base, head, case_cmd, suite_cmd, setup=None, timeout=900):
 
 def report(ok, counts):
     n = counts["cases"]
-    return ("Learning proof %s: %d of %d added cases fail on base, %d of %d pass on head, %d without an assertion; "
+    return ("Learning proof %s: %d of %d added cases fail on base, %d of %d pass on head, %d pass on head without executing an assertion; "
             "full suite on head: %s." % ("passes" if ok else "fails", counts["failed_on_base"], n, counts["passed_on_head"], n,
                                          counts["no_assertion"], counts["suite"]))
 

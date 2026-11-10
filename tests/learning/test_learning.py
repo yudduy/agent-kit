@@ -1,3 +1,4 @@
+import importlib.util
 import json
 import sys
 import tempfile
@@ -262,68 +263,82 @@ def tree(**files):
     return root
 
 
-CASE = 'import app\nassert app.save("Ada") == "Ada"\n'
-RUN_CASE = '"%s" {case}' % sys.executable
+CASE = 'import app\n\n\ndef test_save():\n    assert app.save("Ada") == "Ada"\n'
+PYTEST = '"%s" -m pytest -q -p no:cacheprovider {case}' % sys.executable
+SCRIPT = '"%s" {case}' % sys.executable
 PASS, FAIL = '"%s" -c "pass"' % sys.executable, '"%s" -c "raise SystemExit(1)"' % sys.executable
+HAS_PYTEST = importlib.util.find_spec("pytest") is not None
 
 
-class Proof(unittest.TestCase):
-    def prove(self, case=CASE, base_save="return None", suite=PASS, case_cmd=RUN_CASE):
-        base = tree(**{"app.py": "def save(name):\n    %s\n" % base_save})
-        head = tree(**{"app.py": "def save(name):\n    return name\n", "test_save_case.py": case})
-        entry = ("test_save_case.py", "added", "\n".join("+" + l for l in case.splitlines()))
-        with mock.patch("builtins.print"):
-            return proof.prove(files(entry), base, head, case_cmd, suite)
+def prove_case(case, base_save="return None", suite=PASS, case_cmd=PYTEST, head_extra=None):
+    base = tree(**{"app.py": "def save(name):\n    %s\n" % base_save})
+    head = tree(**{"app.py": "def save(name):\n    return name\n", "test_save_case.py": case, **(head_extra or {})})
+    with mock.patch("builtins.print"):
+        return proof.prove(files(("test_save_case.py", "added", "\n".join("+" + l for l in case.splitlines()))), base, head, case_cmd, suite)
 
-    def test_an_added_case_with_no_assertion_is_not_proof(self):
-        self.assertEqual(pathcheck.check(files(("test_save_case.py", "added", ""))), ([], []), "the path check alone passes it")
-        for case in ("", "import app\n", "import app\n# assert app.save('Ada')\n"):
-            ok, counts = self.prove(case=case)
-            self.assertFalse(ok, repr(case))
-            self.assertEqual(counts["no_assertion"], 1, repr(case))
 
-    def test_assertion_words_inside_strings_do_not_count_and_go_checks_do(self):
-        self.assertFalse(proof.asserts(['print("expected")', "log('should work')"]))
-        self.assertFalse(proof.asserts(['message = """', "expected", '"""']))
-        self.assertFalse(proof.asserts(["const m = `", "should", "`;"]))
-        self.assertTrue(proof.asserts(['doc = """x"""', "assert save()"]))
-        self.assertTrue(proof.asserts(['x = "`"', "assert True", 'y = "`"']))
-        self.assertFalse(proof.asserts(["const message = `hello \\` expect nope`;"]))
-        self.assertTrue(proof.asserts(['\tt.Fatalf("bad value")']))
-        self.assertTrue(proof.asserts(["    require.Equal(t, 1, got)"]))
-        self.assertTrue(proof.asserts(['{"input": "Ada", "expected": "Ada"}'], jsonl=True))
-        self.assertFalse(proof.asserts(['{"input": "expected"}'], jsonl=True))
-
-    def test_a_case_that_fails_on_base_and_passes_on_head_with_the_suite_green_is_proof(self):
-        ok, counts = self.prove()
-        self.assertTrue(ok)
-        self.assertEqual(counts, {"cases": 1, "failed_on_base": 1, "passed_on_head": 1, "no_assertion": 0, "suite": "pass"})
-
-    def test_a_case_that_already_passes_on_base_is_not_proof(self):
-        ok, counts = self.prove(base_save="return name")
+class ProofFailsClosed(unittest.TestCase):
+    def test_a_runner_other_than_pytest_is_not_proof(self):
+        """Checker round 3: a missing helper fails the case on base and the helper makes it pass on head."""
+        ok, _ = prove_case("expected = 1; import regression_helper\n", case_cmd=SCRIPT, head_extra={"regression_helper.py": ""})
         self.assertFalse(ok)
-        self.assertEqual(counts["failed_on_base"], 0)
-
-    def test_a_failing_full_suite_on_head_is_not_proof(self):
-        ok, counts = self.prove(suite=FAIL)
-        self.assertFalse(ok)
-        self.assertEqual(counts["suite"], "fail")
+        self.assertFalse(prove_case(CASE, case_cmd=SCRIPT)[0], "a plain script writes no pytest report")
 
     def test_no_added_case_or_no_test_command_is_not_proof(self):
         base, head = tree(**{"app.py": "x = 1\n"}), tree(**{"app.py": "x = 2\n"})
         with mock.patch("builtins.print"):
-            self.assertFalse(proof.prove(files(("app.py", "modified", "-x = 1\n+x = 2")), base, head, RUN_CASE, PASS)[0])
-            self.assertFalse(self.prove(case_cmd="")[0])
+            self.assertFalse(proof.prove(files(("app.py", "modified", "-x = 1\n+x = 2")), base, head, PYTEST, PASS)[0])
+        self.assertFalse(prove_case(CASE, case_cmd="")[0])
+
+
+@unittest.skipUnless(HAS_PYTEST, "needs pytest")
+class Proof(unittest.TestCase):
+    def test_a_missing_import_or_a_non_assertion_error_on_base_is_not_proof(self):
+        helper = {"regression_helper.py": "def check():\n    return True\n"}
+        for case in ("expected = 1; import regression_helper\n",
+                     "import regression_helper\n\n\ndef test_save():\n    assert regression_helper.check()\n",
+                     "def test_save():\n    import regression_helper\n    assert regression_helper.check()\n",
+                     "import app\n\n\ndef test_save():\n    assert app.save('Ada').upper() == 'ADA'\n",
+                     "def test_save(:\n    assert True\n"):
+            self.assertFalse(prove_case(case, head_extra=helper)[0], case)
+
+    def test_an_added_case_that_executes_no_assertion_on_head_is_not_proof(self):
+        self.assertEqual(pathcheck.check(files(("test_save_case.py", "added", ""))), ([], []), "the path check alone passes it")
+        for case in ("", "import app\n", "import app\n# assert app.save('Ada')\n",
+                     'import app\n\n\ndef test_save():\n    print("expected", app.save("Ada"))\n'):
+            self.assertFalse(prove_case(case)[0], repr(case))
+        ok, counts = prove_case('import app\n\n\ndef test_save():\n    if app.save("Ada") != "Ada":\n        assert False, "expected Ada"\n')
+        self.assertFalse(ok)
+        self.assertEqual((counts["failed_on_base"], counts["no_assertion"]), (1, 1))
+
+    def test_a_case_that_fails_on_base_by_an_assertion_and_passes_on_head_with_the_suite_green_is_proof(self):
+        ok, counts = prove_case(CASE)
+        self.assertTrue(ok)
+        self.assertEqual(counts, {"cases": 1, "failed_on_base": 1, "passed_on_head": 1, "no_assertion": 0, "suite": "pass"})
+        unittest_style = ("import unittest\nimport app\n\n\nclass Save(unittest.TestCase):\n"
+                          "    def test_save(self):\n        self.assertEqual(app.save('Ada'), 'Ada')\n")
+        self.assertTrue(prove_case(unittest_style)[0])
+
+    def test_a_case_that_already_passes_on_base_is_not_proof(self):
+        ok, counts = prove_case(CASE, base_save="return name")
+        self.assertFalse(ok)
+        self.assertEqual(counts["failed_on_base"], 0)
+
+    def test_a_failing_full_suite_on_head_is_not_proof(self):
+        ok, counts = prove_case(CASE, suite=FAIL)
+        self.assertFalse(ok)
+        self.assertEqual(counts["suite"], "fail")
 
     def test_lines_appended_to_a_case_list_run_as_one_case(self):
-        base = tree(**{"app.py": "def save(name):\n    return None\n", "evals/cases.jsonl": '{"name": "Bo", "expected": null}\n'})
+        evals = {"test_evals.py": 'import json, os, app\n\n\ndef test_cases():\n    for c in map(json.loads, open(os.environ["CASES"])):\n'
+                                  '        assert app.save(c["name"]) == c["expected"]\n'}
+        base = tree(**{"app.py": "def save(name):\n    return None\n", "evals/cases.jsonl": '{"name": "Bo", "expected": null}\n', **evals})
         lines = '{"name": "Bo", "expected": null}\n{"name": "Ada", "expected": "Ada"}\n'
-        head = tree(**{"app.py": "def save(name):\n    return name if name == 'Ada' else None\n", "evals/cases.jsonl": lines})
-        runner = ('"%s" -c "import json,sys,app; sys.exit(any(app.save(c[\'name\']) != c[\'expected\'] for c in map(json.loads, open(sys.argv[1]))))" {case}'
-                  % sys.executable)
+        head = tree(**{"app.py": "def save(name):\n    return name if name == 'Ada' else None\n", "evals/cases.jsonl": lines, **evals})
+        command = 'CASES={case} "%s" -m pytest -q -p no:cacheprovider test_evals.py' % sys.executable
         with mock.patch("builtins.print"):
             ok, counts = proof.prove(files(("evals/cases.jsonl", "modified", '@@ -1,0 +2 @@\n+{"name": "Ada", "expected": "Ada"}')),
-                                     base, head, runner, PASS)
+                                     base, head, command, PASS)
         self.assertTrue(ok)
         self.assertEqual(counts["cases"], 1)
 
@@ -334,7 +349,7 @@ class Proof(unittest.TestCase):
         summary = listing.with_name("summary.md")
         summary.write_text("Learning proof passes: planted by PR code\n")
         with mock.patch("builtins.print"):
-            code = proof.main(["--files", str(listing), "--base", str(base), "--head", str(head), "--case-cmd", RUN_CASE,
+            code = proof.main(["--files", str(listing), "--base", str(base), "--head", str(head), "--case-cmd", PYTEST,
                                "--suite-cmd", PASS, "--summary", str(summary)])
         self.assertEqual(code, 0)
         self.assertIn("1 of 1 added cases fail on base", summary.read_text())
