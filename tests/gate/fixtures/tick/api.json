@@ -1,0 +1,207 @@
+{
+  "/repos/yudduy/agent-control/contents/agent-kit/repos.json?ref=main": {
+    "content": "eyJ2IjogMSwgInJlcG9zIjogWyJ5dWRkdXkvZGVtbyJdfQ==",
+    "sha": "1111111111111111111111111111111111111111"
+  },
+  "/repos/yudduy/demo/actions/runs/7/artifacts?name=agent-kit-evidence": {
+    "artifacts": [
+      {
+        "id": 120,
+        "name": "agent-kit-evidence",
+        "expired": false,
+        "size_in_bytes": 2048
+      }
+    ]
+  },
+  "/repos/yudduy/demo/actions/runs/8/artifacts?name=agent-kit-evidence": {
+    "artifacts": [
+      {
+        "id": 130,
+        "name": "agent-kit-evidence",
+        "expired": false,
+        "size_in_bytes": 2048
+      }
+    ]
+  },
+  "/repos/yudduy/demo/actions/runs?head_sha=9999999999999999999999999999999999999999&event=pull_request&per_page=100": {
+    "workflow_runs": [
+      {
+        "id": 8
+      }
+    ]
+  },
+  "/repos/yudduy/demo/actions/runs?head_sha=cccccccccccccccccccccccccccccccccccccccc&event=pull_request&per_page=100": {
+    "workflow_runs": [
+      {
+        "id": 7
+      }
+    ]
+  },
+  "/repos/yudduy/demo/branches/main": {
+    "commit": {
+      "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  },
+  "/repos/yudduy/demo/commits/9999999999999999999999999999999999999999/check-runs": {
+    "check_runs": [
+      {
+        "id": 113,
+        "name": "test",
+        "status": "completed",
+        "conclusion": "success",
+        "app": {
+          "id": 15368,
+          "slug": "github-actions"
+        },
+        "output": {
+          "summary": null
+        }
+      }
+    ]
+  },
+  "/repos/yudduy/demo/commits/9999999999999999999999999999999999999999/status": {
+    "statuses": []
+  },
+  "/repos/yudduy/demo/commits/cccccccccccccccccccccccccccccccccccccccc/check-runs": {
+    "check_runs": [
+      {
+        "id": 112,
+        "name": "test",
+        "status": "completed",
+        "conclusion": "success",
+        "app": {
+          "id": 15368,
+          "slug": "github-actions"
+        },
+        "output": {
+          "summary": null
+        }
+      }
+    ]
+  },
+  "/repos/yudduy/demo/commits/cccccccccccccccccccccccccccccccccccccccc/status": {
+    "statuses": []
+  },
+  "/repos/yudduy/demo/compare/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb...9999999999999999999999999999999999999999": {
+    "behind_by": 0,
+    "ahead_by": 1,
+    "files": [
+      {
+        "filename": ".agent-kit/policy.yml",
+        "status": "modified",
+        "patch": "@@ -11 +11 @@\n-auto_merge: [docs, kit-bump]\n+auto_merge: [docs, kit-bump, review]"
+      }
+    ]
+  },
+  "/repos/yudduy/demo/compare/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb...cccccccccccccccccccccccccccccccccccccccc": {
+    "behind_by": 0,
+    "ahead_by": 1,
+    "files": [
+      {
+        "filename": "docs/guide.md",
+        "status": "modified",
+        "patch": "@@ -1 +1 @@\n-old\n+new"
+      }
+    ]
+  },
+  "/repos/yudduy/demo/contents/.agent-kit/policy.yml?ref=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": {
+    "content": "dmVyc2lvbjogMQpraXRfcmVmOiBhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhICAgICAgICAgICAgICAgICAgICAgIyBwaW5uZWQga2l0CmFwcHJvdmVyczogW3l1ZGR1eSwgYWxpY2VdCmFwcDoKICBidWlsZDogImRvY2tlciBidWlsZCAtdCBhcHAgLiIKICBzdGFydDoge3BvcnQ6IDMwMDAsIGhlYWx0aDogL2hlYWx0aHp9CiAgZGI6IHtpbWFnZTogcG9zdGdyZXM6MTYsIHNlZWQ6IGRiL3NlZWQuc3FsfQpmbG9vcl9leHRyYToKICBtaWdyYXRpb25zOiB7cGF0aHM6IFsiZGIvbWlncmF0aW9ucy8qKiJdfQogIGdvdmVybmFuY2U6IHtwYXRoczogWyJldmFscy8qKiJdfQphdXRvX21lcmdlOiBbZG9jcywga2l0LWJ1bXBdCnJlcXVpcmVkX2NoZWNrczogW3tuYW1lOiB0ZXN0LCBhcHA6IGdpdGh1Yi1hY3Rpb25zfV0Kam91cm5leXM6CiAgLSBpZDogc2F2ZS1wcm9maWxlCiAgICBhcmVhczogWyJzcmMvcHJvZmlsZS8qKiJdCiAgICBzcGVjOiAuYWdlbnQta2l0L2pvdXJuZXlzL3NhdmUtcHJvZmlsZS5zcGVjLnRzCiAgICBkYXRhX2Fzc2VydGlvbnM6CiAgICAgIC0ge2lkOiBuYW1lLXBlcnNpc3RlZCwgc3FsOiAic2VsZWN0IG5hbWUgZnJvbSBwcm9maWxlcyB3aGVyZSBpZCA9ICdzZWVkLXVzZXItMSciLCBleHBlY3Q6IFt7bmFtZTogQWRhfV19Cg==",
+    "sha": "dddddddddddddddddddddddddddddddddddddddd"
+  },
+  "/repos/yudduy/demo/contents/.agent-kit?ref=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": [
+    {
+      "path": ".agent-kit/journeys",
+      "type": "dir",
+      "sha": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    },
+    {
+      "path": ".agent-kit/policy.yml",
+      "type": "file",
+      "sha": "dddddddddddddddddddddddddddddddddddddddd"
+    }
+  ],
+  "/repos/yudduy/demo/contents/.github/workflows/verify.yml?ref=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": {
+    "content": "bmFtZTogdmVyaWZ5Cm9uOiBwdWxsX3JlcXVlc3QKam9iczoKICB2ZXJpZnk6CiAgICB1c2VzOiB5dWRkdXkvYWdlbnQta2l0Ly5naXRodWIvd29ya2Zsb3dzL3ZlcmlmeS55bWxAYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYQo=",
+    "sha": "5555555555555555555555555555555555555555"
+  },
+  "/repos/yudduy/demo/contents/.github/workflows?ref=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": [
+    {
+      "path": ".github/workflows/verify.yml",
+      "name": "verify.yml",
+      "type": "file"
+    },
+    {
+      "path": ".github/workflows/README.txt",
+      "name": "README.txt",
+      "type": "file"
+    }
+  ],
+  "/repos/yudduy/demo/pulls/12/commits": [
+    {
+      "author": {
+        "login": "agent-bot[bot]"
+      },
+      "committer": {
+        "login": "web-flow"
+      }
+    }
+  ],
+  "/repos/yudduy/demo/pulls/12/reviews": [],
+  "/repos/yudduy/demo/pulls/13/commits": [
+    {
+      "author": {
+        "login": "agent-bot[bot]"
+      },
+      "committer": {
+        "login": "web-flow"
+      }
+    }
+  ],
+  "/repos/yudduy/demo/pulls/13/reviews": [],
+  "/repos/yudduy/demo/pulls?state=open": [
+    {
+      "number": 12,
+      "draft": false,
+      "user": {
+        "login": "agent-bot[bot]",
+        "type": "Bot"
+      },
+      "head": {
+        "sha": "cccccccccccccccccccccccccccccccccccccccc",
+        "repo": {
+          "full_name": "yudduy/demo"
+        },
+        "ref": "agent/pr-12"
+      },
+      "base": {
+        "ref": "main",
+        "repo": {
+          "default_branch": "main"
+        }
+      },
+      "labels": []
+    },
+    {
+      "number": 13,
+      "draft": false,
+      "user": {
+        "login": "agent-bot[bot]",
+        "type": "Bot"
+      },
+      "head": {
+        "sha": "9999999999999999999999999999999999999999",
+        "repo": {
+          "full_name": "yudduy/demo"
+        },
+        "ref": "agent/pr-13"
+      },
+      "base": {
+        "ref": "main",
+        "repo": {
+          "default_branch": "main"
+        }
+      },
+      "labels": []
+    }
+  ]
+}

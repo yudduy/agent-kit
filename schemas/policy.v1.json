@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/yudduy/agent-kit/blob/main/schemas/policy.v1.json",
+  "title": "agent-kit policy v1 (.agent-kit/policy.yml)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "kit_ref", "approvers", "app", "auto_merge", "required_checks", "journeys"],
+  "properties": {
+    "version": {"type": "integer", "const": 1},
+    "kit_ref": {"$ref": "#/$defs/sha"},
+    "approvers": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Za-z0-9-]+$"}},
+    "app": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["build", "start", "db"],
+      "properties": {
+        "build": {"type": "string"},
+        "start": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["port", "health"],
+          "properties": {
+            "cmd": {"type": "string", "minLength": 1},
+            "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+            "health": {"type": "string", "pattern": "^/"}
+          }
+        },
+        "db": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["seed"],
+          "anyOf": [{"required": ["image"]}, {"required": ["engine"], "properties": {"engine": {"const": "sqlite"}}}],
+          "properties": {
+            "engine": {"enum": ["postgres", "sqlite"]},
+            "image": {"type": "string", "minLength": 1},
+            "seed": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
+    "classes": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]*$",
+        "not": {"enum": ["governance", "destructive", "migrations", "tenancy", "payments", "auth", "review", "kit-bump", "docs"]}
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "anyOf": [{"required": ["paths"]}, {"required": ["added_lines"]}],
+        "properties": {
+          "paths": {"$ref": "#/$defs/globs"},
+          "added_lines": {"$ref": "#/$defs/regexes"},
+          "floor": {"enum": ["governance", "destructive", "migrations", "tenancy", "payments", "auth"]}
+        }
+      }
+    },
+    "floor_extra": {
+      "type": "object",
+      "propertyNames": {"enum": ["governance", "destructive", "migrations", "tenancy", "payments", "auth"]},
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "anyOf": [{"required": ["paths"]}, {"required": ["added_lines"]}],
+        "properties": {"paths": {"$ref": "#/$defs/globs"}, "added_lines": {"$ref": "#/$defs/regexes"}}
+      }
+    },
+    "auto_merge": {"type": "array", "uniqueItems": true, "items": {"enum": ["docs", "kit-bump"]}},
+    "required_checks": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "app"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "app": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"}
+        }
+      }
+    },
+    "journeys": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "areas", "spec", "data_assertions"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+          "areas": {"$ref": "#/$defs/globs"},
+          "spec": {"type": "string"},
+          "data_assertions": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "sql", "expect"],
+              "properties": {
+                "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$"},
+                "sql": {"type": "string", "minLength": 1},
+                "expect": {"type": "array"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "verify": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"regress_glob": {"type": "string", "minLength": 1}}
+    },
+    "caps": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runs_per_repo": {"type": "integer", "minimum": 0, "maximum": 1},
+        "daily_usd": {"type": "number", "minimum": 0},
+        "max_attempts": {"type": "integer", "minimum": 0, "maximum": 2}
+      }
+    }
+  },
+  "$defs": {
+    "sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "globs": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "regexes": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+  }
+}

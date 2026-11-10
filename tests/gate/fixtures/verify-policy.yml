@@ -1,0 +1,15 @@
+version: 1
+kit_ref: "0000000000000000000000000000000000000000"
+approvers: [yudduy]
+app:
+  build: "python3 -m py_compile app.py"
+  start: {cmd: "python3 app.py", port: 8765, health: /healthz}
+  db: {engine: sqlite, seed: .agent-kit/seed/seed.sql}
+auto_merge: [docs]
+required_checks: []
+journeys:
+  - id: save-profile
+    areas: ["app.py"]
+    spec: .agent-kit/journeys/save-profile.spec.ts
+    data_assertions:
+      - {id: name-persisted, sql: "select name from profiles where id = 'seed-user-1'", expect: [{name: "Ada"}]}

@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "repo": "yudduy/demo",
+  "pr": 12,
+  "head_sha": "cccccccccccccccccccccccccccccccccccccccc",
+  "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "kit_ref": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "policy_sha": "dddddddddddddddddddddddddddddddddddddddd",
+  "journeys_sha": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "run": {
+    "id": 7,
+    "attempt": 1,
+    "workflow_ref": "yudduy/agent-kit/.github/workflows/verify.yml@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "env": {
+    "runner_image": "ubuntu-24.04/20261101",
+    "app_image_digest": "sha256:1",
+    "db_image_digest": "sha256:2",
+    "seed_hash": "sha256:3"
+  },
+  "scenarios": [
+    {
+      "id": "save-profile",
+      "source": "base",
+      "ui_result": "pass",
+      "data_assertions": [
+        {
+          "id": "name-persisted",
+          "sql_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+          "expected": [
+            {
+              "name": "Ada"
+            }
+          ],
+          "observed": [
+            {
+              "name": "Ada"
+            }
+          ],
+          "pass": true
+        }
+      ],
+      "result": "pass",
+      "trace": "traces/save-profile.zip"
+    }
+  ],
+  "regression": [],
+  "artifacts": [
+    {
+      "name": "traces/save-profile.zip",
+      "sha256": "83927f72a4a8366beba093e79cc55d7c68344f0f80753946bf4cfed60ba9ca2c"
+    }
+  ],
+  "result": "pass"
+}
