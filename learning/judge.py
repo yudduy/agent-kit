@@ -3,9 +3,10 @@
 
   python3 -m learning.judge --control <agent-control checkout> --model <OpenAI model id>
 
-For each open PR on a `learn/*` branch in a registered repo that edits skill text (`SKILL.md`, or Markdown under a
-`skills/` folder), it shows the old and new text to an OpenAI model as "Version A" and "Version B" in an order
-derived from the head commit, without saying which is new, and posts the verdict once per head commit. The
+For each open PR on a `learn/*` branch in a registered repo that adds or edits skill or instruction text (`SKILL.md`,
+`AGENTS.md`, `CLAUDE.md`, Markdown under a `skills/` folder, files under `.cursor/rules/`), it shows the old and new text to an OpenAI model as "Version A" and "Version B" in an order
+derived from the head commit, without saying which is new, and posts the verdict once per head commit. An added
+file's old text is "(no file)", so the judge decides whether the new text is better than having none. The
 proposer runs on a Cursor model, so the judge is from another family; a PR whose learning marker names an OpenAI
 model, or no model, is not judged. Env: GH_TOKEN (Contents and Pull requests read, Issues write), OPENAI_API_KEY.
 """
@@ -64,7 +65,9 @@ def openai(model):
 
 
 def is_skill_text(path):
-    return path.endswith("SKILL.md") or ("skills/" in path and path.endswith(".md"))
+    name = path.rsplit("/", 1)[-1]
+    return (name in ("SKILL.md", "AGENTS.md", "CLAUDE.md") or ("skills/" in path and path.endswith(".md"))
+            or path.startswith(".cursor/rules/") or "/.cursor/rules/" in path)
 
 
 def text_at(api, repo, path, sha):
@@ -92,8 +95,9 @@ def judge_pr(api, pages, ask, model, me, repo, pr):
     number, head = pr["number"], pr["head"]["sha"]
     if judged(pages, me, repo, number, head):
         return
-    paths = [f["filename"] for f in pages("/repos/%s/pulls/%d/files" % (repo, number))
-             if f["status"] == "modified" and is_skill_text(f["filename"])]
+    changed = {f["filename"]: f["status"] for f in pages("/repos/%s/pulls/%d/files" % (repo, number))
+               if f["status"] in ("added", "modified") and is_skill_text(f["filename"])}
+    paths = sorted(changed)
     if not paths:
         return
     found = re.search(r"agent-kit:learning v1 ([^>]*?)\s*-->", pr.get("body") or "")
@@ -103,15 +107,17 @@ def judge_pr(api, pages, ask, model, me, repo, pr):
     elif SAME_FAMILY.search(fields["model"]):
         verdict, text = "not-judged", "Blind review skipped: the proposer (%s) is from the judge's family; ask for a judge from another model family." % fields["model"]
     else:
-        old = "\n\n".join("--- %s\n%s" % (p, text_at(api, repo, p, pr["base"]["sha"])) for p in paths)
+        old = "\n\n".join("--- %s\n%s" % (p, "(no file)" if changed[p] == "added" else text_at(api, repo, p, pr["base"]["sha"]))
+                          for p in paths)
         new = "\n\n".join("--- %s\n%s" % (p, text_at(api, repo, p, head)) for p in paths)
         new_first = int(hashlib.sha256(head.encode()).hexdigest(), 16) % 2 == 0
         answer = ask(PROMPT.format(cls=fields.get("class", "the mistake named in the PR"), a=new if new_first else old, b=old if new_first else new))
         reply = json_object(answer)
         better = reply.get("better")
         verdict = "tie" if better == "tie" else ("new" if (better == "A") == new_first else "old") if better in ("A", "B") else "unclear"
-        text = {"new": "the new skill text is better", "old": "the old skill text is better", "tie": "no clear difference",
-                "unclear": "the judge gave no usable answer"}[verdict]
+        none = " than having none" if all(changed[p] == "added" for p in paths) else ""
+        text = {"new": "the new skill text is better" + none, "old": "having no such text is better" if none else "the old skill text is better",
+                "tie": "no clear difference", "unclear": "the judge gave no usable answer"}[verdict]
         text = "Blind review by %s, a different model family from the proposer: %s. Reason: %s" % (model, text, reply.get("reason", "none given"))
     marker = "<!-- %s %s -->" % (MARKER, json.dumps({"head_sha": head, "judge": model, "verdict": verdict}, separators=(",", ":")))
     api("POST", "/repos/%s/issues/%d/comments" % (repo, number), {"body": marker + "\n" + text})

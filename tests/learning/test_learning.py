@@ -241,6 +241,39 @@ OPEN_PR = {"number": 21, "title": "Fix cart total", "url": "https://github.com/y
                 "url": "https://github.com/yudduy/shop/runs/3", "completedAt": "2026-11-08T08:00:00Z"}]}}]}}}]}}
 
 
+class AddedSkillAPI(FakeGitHubAPI):
+    def __init__(self, added):
+        super().__init__()
+        self.added = added
+
+    def __call__(self, method, path, body=None):
+        if "/contents/" in path and path.endswith("a" * 40):
+            raise AssertionError("an added file has no base version to fetch: " + path)
+        return super().__call__(method, path, body)
+
+    def pages(self, path):
+        if path.endswith("/pulls/7/files"):
+            return [{"filename": "tests/test_save.py", "status": "added"}, {"filename": self.added, "status": "added"}]
+        return super().pages(path)
+
+
+class JudgeAddedSkills(unittest.TestCase):
+    def test_an_added_skill_or_instruction_file_is_judged_against_having_none(self):
+        for added in (".cursor/skills/prevent-data-loss/SKILL.md", "AGENTS.md", "src/CLAUDE.md", "skills/save/notes.md",
+                      ".cursor/rules/persist.mdc"):
+            api, prompts = AddedSkillAPI(added), []
+            def prefer_new(prompt):
+                prompts.append(prompt)
+                return '{"better": "%s", "reason": "x"}' % ("A" if prompt.index("NEW:") < prompt.index("(no file)") else "B")
+            judge.run(["yudduy/shop"], api, api.pages, prefer_new, "gpt-judge")
+            self.assertEqual(len(prompts), 1, added)
+            self.assertIn("--- %s\n(no file)" % added, prompts[0])
+            self.assertIn("Version A", prompts[0])
+            self.assertEqual(len(api.posted), 1, added)
+            self.assertIn('"verdict":"new"', api.posted[0][1]["body"])
+            self.assertIn("better than having none", api.posted[0][1]["body"])
+
+
 class HarvestUnmerged(unittest.TestCase):
     def test_gate_failures_on_open_or_closed_agent_prs_become_cases(self):
         def search_like_github(query, q, n, after):

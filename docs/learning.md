@@ -73,10 +73,12 @@ has only read permissions and no secrets; PR code runs in the same process as th
 
 ## Blind review of skill text
 
-The daily `judge` job in `learn.yml` runs `python3 -m learning.judge`. For each open `learn/*` PR that edits
-`SKILL.md` or Markdown under a `skills/` folder, it shows the old and new text to an OpenAI model (variable
-`AGENT_KIT_JUDGE_MODEL`) as Version A and Version B, in an order taken from the head commit, without saying which
-is new. It posts one verdict comment per head commit: new better, old better, tie, or unclear. Proposals run on a
+The daily `judge` job in `learn.yml` runs `python3 -m learning.judge`. For each open `learn/*` PR that adds or
+edits skill or instruction text (`SKILL.md`, `AGENTS.md`, `CLAUDE.md`, Markdown under a `skills/` folder, files under
+`.cursor/rules/`), it shows the old and new text to an OpenAI model (variable `AGENT_KIT_JUDGE_MODEL`) as Version A
+and Version B, in an order taken from the head commit, without saying which is new. An added file's old text is
+`(no file)`, so the judge decides whether the new text is better than having none. It posts one verdict comment per
+head commit: new better, old better, tie, or unclear. Proposals run on a
 Cursor model, so the judge is from another family; if the PR's learning marker names an OpenAI model as the
 proposer, or names none, the job posts that it cannot pick a judge from another family instead of judging. Only
 its own earlier verdict for the same head commit stops a repeat; a marker copied by anyone else does not.
