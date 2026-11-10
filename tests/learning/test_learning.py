@@ -320,11 +320,13 @@ class Proof(unittest.TestCase):
         listing = Path(tempfile.mkdtemp()) / "files.jsonl"
         listing.write_text(json.dumps({"filename": "test_save_case.py", "status": "added", "patch": "".join("+" + l for l in CASE.splitlines(True))}))
         summary = listing.with_name("summary.md")
+        summary.write_text("Learning proof passes: planted by PR code\n")
         with mock.patch("builtins.print"):
             code = proof.main(["--files", str(listing), "--base", str(base), "--head", str(head), "--case-cmd", RUN_CASE,
                                "--suite-cmd", PASS, "--summary", str(summary)])
         self.assertEqual(code, 0)
         self.assertIn("1 of 1 added cases fail on base", summary.read_text())
+        self.assertNotIn("planted", summary.read_text())
 
 
 if __name__ == "__main__":

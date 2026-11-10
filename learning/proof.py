@@ -105,7 +105,7 @@ def main(argv=None):
     line = report(ok, counts)
     print(line)
     if args.summary:
-        with open(args.summary, "a") as handle:
+        with open(args.summary, "w") as handle:  # written after all PR code ran, so a planted file is replaced
             handle.write(line + "\n")
     return 0 if ok else 1
 
