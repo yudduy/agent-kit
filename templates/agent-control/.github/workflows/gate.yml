@@ -1,0 +1,43 @@
+# agent-gate: decides every open PR in the repos listed in agent-kit/repos.json (D2, C5).
+# Copy to yudduy/agent-control/.github/workflows/gate.yml and set AGENT_KIT_REF to a 40-hex agent-kit commit.
+# This job checks out agent-kit only. It never checks out, builds or runs PR code (INV-2).
+name: agent-gate
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write # append to the decisions-log branch of this repository; nothing else
+
+concurrency:
+  group: agent-gate
+  cancel-in-progress: false
+
+env:
+  AGENT_KIT_REF: "0000000000000000000000000000000000000000" # pinned agent-kit commit; change only by PR
+
+jobs:
+  gate:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    environment: merge-gate # holds AGENT_GATE_PRIVATE_KEY; deployment branches limited to main
+    timeout-minutes: 15
+    steps:
+      - name: Check the kit pin is a full commit SHA
+        run: '[[ "$AGENT_KIT_REF" =~ ^[0-9a-f]{40}$ ]] || { echo "AGENT_KIT_REF must be a 40-hex commit"; exit 1; }'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: yudduy/agent-kit
+          ref: ${{ env.AGENT_KIT_REF }}
+          path: agent-kit
+          persist-credentials: false
+      - name: Run one gate tick
+        working-directory: agent-kit
+        run: python3 -m gate.main
+        env:
+          AGENT_GATE_APP_ID: ${{ vars.AGENT_GATE_APP_ID }}
+          AGENT_GATE_PRIVATE_KEY: ${{ secrets.AGENT_GATE_PRIVATE_KEY }}
+          AGENT_KIT_PAUSED: ${{ vars.AGENT_KIT_PAUSED }}
+          GITHUB_TOKEN: ${{ github.token }}
