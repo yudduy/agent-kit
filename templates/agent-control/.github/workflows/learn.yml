@@ -1,0 +1,47 @@
+# agent-kit weekly learning harvest (design D10). Reads onboarded repos, appends C6 cases to the
+# decisions-log branch, and starts one Cursor proposal run per class that reached 2 cases.
+# Environment `learn` holds: AGENT_KIT_READ_TOKEN (fine-grained, read-only: Contents, Issues, Pull requests on
+# onboarded repos and agent-control) and CURSOR_API_KEY. Never the gate App key.
+name: learn
+on:
+  schedule:
+    - cron: "0 9 * * 1"
+  workflow_dispatch:
+concurrency:
+  group: agent-kit-learn
+  cancel-in-progress: false
+permissions:
+  contents: write
+jobs:
+  harvest:
+    runs-on: ubuntu-24.04
+    environment: learn
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          path: control
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: decisions-log
+          path: log
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: yudduy/agent-kit
+          ref: {{KIT_REF}}
+          path: kit
+          persist-credentials: false
+      - name: Harvest and propose
+        working-directory: kit
+        env:
+          GH_TOKEN: ${{ secrets.AGENT_KIT_READ_TOKEN }}
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+        run: python3 -m learning.harvest --config ../control/agent-kit.json --cases ../log/learning/cases.jsonl --propose
+      - name: Append cases to decisions-log
+        working-directory: log
+        run: |
+          git add learning/cases.jsonl
+          git diff --cached --quiet && exit 0
+          git -c user.name="agent-kit learn" -c user.email="actions@users.noreply.github.com" commit -m "Add learning cases"
+          git push origin HEAD:decisions-log

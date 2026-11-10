@@ -1,0 +1,17 @@
+# agent-kit policy, contract C1 v1. The gate reads this file from the base branch only.
+# Kit floor (never auto-merged, cannot be removed here): auth, payments, migrations, tenancy, destructive,
+# governance (.agent-kit/**, .github/**, .cursor/**, CODEOWNERS, AGENTS.md, CLAUDE.md, seed and fixtures).
+# You can add paths to a floor class under floor_extra; no key removes one.
+version: 1
+kit_ref: {{KIT_REF}}
+approvers: [yudduy]
+app:
+  build: "docker build -t app ."
+  start: {port: 3000, health: /healthz}
+  db: {image: postgres:16, seed: .agent-kit/seed/seed.sql}
+classes: {}
+floor_extra: {}
+auto_merge: [docs]
+required_checks: []
+journeys: []
+caps: {runs_per_repo: 1, daily_usd: 20, max_attempts: 2}

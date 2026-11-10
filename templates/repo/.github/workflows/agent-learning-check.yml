@@ -1,0 +1,26 @@
+# Fails a learning PR (label agent:learning or the agent-kit:learning marker in its body) that changes anything except added test or eval cases (INV-12).
+# Runs kit code at the pinned commit and reads the PR's file list through the API; it never runs PR code.
+name: agent-learning-check
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, labeled, unlabeled]
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  pathcheck:
+    if: contains(github.event.pull_request.labels.*.name, 'agent:learning') || contains(github.event.pull_request.body, 'agent-kit:learning v1')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: yudduy/agent-kit
+          ref: {{KIT_REF}}
+          path: kit
+          persist-credentials: false
+      - name: Check changed paths
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --jq ".[]" > files.jsonl
+          python3 kit/learning/pathcheck.py --files files.jsonl

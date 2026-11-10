@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/yudduy/agent-kit/schemas/learning-case.v1.json",
+  "title": "Learning case line v1 (contract C6)",
+  "description": "One line of learning/cases.jsonl on agent-control's decisions-log branch, written by learning/harvest.py.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "id", "at", "source", "signal", "repo", "pr", "evidence", "excerpt", "proposed_class"],
+  "properties": {
+    "v": {"const": 1},
+    "id": {"type": "string", "pattern": "^case-\\d{4}-\\d{2}-\\d{2}-[0-9a-f]{8}$"},
+    "at": {"type": "string", "format": "date-time"},
+    "source": {"enum": ["github", "gate", "sentry"]},
+    "signal": {"enum": ["duy_edit", "review_comment", "revert_14d", "gate_failure", "false_green"]},
+    "repo": {"type": "string", "pattern": "^[\\w.-]+/[\\w.-]+$"},
+    "pr": {"type": "integer", "minimum": 1},
+    "evidence": {"type": "string", "pattern": "^https://github\\.com/"},
+    "excerpt": {"type": "string", "maxLength": 280},
+    "proposed_class": {"type": "string", "pattern": "^[a-z0-9-]+$"}
+  }
+}
