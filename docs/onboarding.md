@@ -34,8 +34,9 @@ on `origin/main` (callers cannot use an unpublished commit).
 
 - `.agent-kit/policy.yml`: C1 skeleton with `kit_ref` set, approvers `[yudduy]`, auto-merge `[docs]` only, kit caps.
 - `.agent-kit/journeys/README.md`: what a journey is; the Cursor run adds the specs.
-- `.github/CODEOWNERS`: Duy owns `.agent-kit/`, `.github/`, `.cursor/`, CODEOWNERS, AGENTS.md, CLAUDE.md. If the repo
-  already has a CODEOWNERS file, only the missing lines are appended to it.
+- `.github/CODEOWNERS`: Duy owns `.agent-kit/`, `.github/`, `.cursor/`, CODEOWNERS, AGENTS.md, CLAUDE.md. The rules
+  sit in one marked block at the end of the repo's existing CODEOWNERS file (or a new one), because CODEOWNERS uses
+  the last matching rule; rerunning moves the block back to the end and never duplicates it.
 - `.github/workflows/agent-learning-check.yml`: the INV-12 path check, run from the pinned kit and listed in the
   policy's `required_checks`. It runs on every PR so the gate never sees it skipped, and checks only `learn/*`
   branches: added cases pass, higher-level fixes pass with the `governance` label, edits to existing expectations,

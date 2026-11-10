@@ -15,6 +15,9 @@ BRANCH = "agent-kit/onboard"
 PSTACK = ("https://github.com/backnotprop/pstack", "4161d4ef5051574e825ffe70e2f43a2e49e4b3db")
 # Template files merged line by line into whichever existing copy the repo has, instead of being kept or overwritten.
 APPEND = {".github/CODEOWNERS": (".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"), "AGENTS.md": ("AGENTS.md",)}
+# CODEOWNERS uses the last matching rule, so the kit's block always sits at the end of the file.
+OWNERS_START = "# agent-kit governance owners: keep this block last (CODEOWNERS uses the last matching rule)"
+OWNERS_END = "# end agent-kit governance owners"
 REGISTER = "Register: add %s to `agent-kit/repos.json` in agent-control so the gate, dispatcher and harvest pick it up."
 FEATURE_DOCS = ("Feature docs: create the Cursor Automation in `.agent-kit/automations/feature-docs.md` at cursor.com/automations"
                 " (trigger Pull request merged; the prompt skips `agent-kit/docs-*` and docs-only PRs).")
@@ -71,14 +74,25 @@ def plan(checkout, files, force=False):
         if rel in APPEND:
             target = next((p for p in APPEND[rel] if (checkout / p).exists()), rel)
             existing = (checkout / target).read_text() if (checkout / target).exists() else ""
-            missing = [l for l in text.splitlines() if l.strip() and l not in existing.splitlines()]
-            if missing:
-                writes.append((target, "append" if existing else "create", existing.rstrip("\n") + ("\n" if existing else "") + "\n".join(missing) + "\n"))
+            new = owners_last(existing, text) if rel == ".github/CODEOWNERS" else append_missing(existing, text)
+            if new != existing:
+                writes.append((target, "append" if existing else "create", new))
         elif (checkout / rel).exists() and not (force and rel.startswith(".agent-kit/")):
             writes.append((rel, "keep", None))
         else:
             writes.append((rel, "overwrite" if (checkout / rel).exists() else "create", text))
     return writes
+
+
+def append_missing(existing, text):
+    missing = [l for l in text.splitlines() if l.strip() and l not in existing.splitlines()]
+    return existing.rstrip("\n") + ("\n" if existing else "") + "\n".join(missing) + "\n" if missing else existing
+
+
+def owners_last(existing, block):
+    """`existing` without any earlier kit block, then the kit block at the end."""
+    kept = re.sub(r"(?ms)^%s$.*?^%s$\n?" % (re.escape(OWNERS_START), re.escape(OWNERS_END)), "", existing).rstrip("\n")
+    return (kept + "\n\n" if kept else "") + "%s\n%s\n%s\n" % (OWNERS_START, block.strip("\n"), OWNERS_END)
 
 
 def pr_body(repo, ref, writes):
@@ -125,7 +139,8 @@ def init(repo, ref=None, dry_run=False, force=False):
     if dry_run:
         print("Dry run for %s at kit commit %s. Nothing is cloned, pushed or opened.\n\nFiles:" % (repo, sha))
         for rel in files:
-            print("- %s%s" % (rel, " (missing lines appended if the repo already has one)" if rel in APPEND else ""))
+            note = {".github/CODEOWNERS": " (kit block placed last in the repo's CODEOWNERS)", "AGENTS.md": " (missing lines appended)"}
+            print("- %s%s" % (rel, note.get(rel, "")))
         print("\nBranch: %s\nDraft PR: %s\n\n%s\nThen: one Cursor run on %s to propose 3-5 journeys (and add a Dockerfile if missing).\n%s"
               % (BRANCH, TITLE, pr_body(repo, sha, [(r, "create", t) for r, t in files.items()]), BRANCH, REGISTER % repo))
         print(FEATURE_DOCS)

@@ -93,8 +93,7 @@ class Render(unittest.TestCase):
         writes = {p: (a, t) for p, a, t in onboard.plan(repo, onboard.render("yudduy/shop", SHA))}
         action, text = writes["CODEOWNERS"]
         self.assertEqual(action, "append")
-        self.assertTrue(text.startswith("* @someone\n/.github/ @yudduy\n/.agent-kit/ @yudduy\n"))
-        self.assertEqual(text.count("/.github/ @yudduy"), 1)
+        self.assertTrue(text.startswith("* @someone\n/.github/ @yudduy\n\n" + onboard.OWNERS_START + "\n/.agent-kit/ @yudduy\n"))
         self.assertNotIn(".github/CODEOWNERS", writes)
         self.assertEqual(writes["docs/features/README.md"][0], "keep")
 
@@ -181,6 +180,26 @@ class OpenBump(unittest.TestCase):
         self.assertIn("sync", workflow)
         self.assertIn("AGENT_KIT_BUMP_TOKEN", workflow)
         self.assertNotIn("merge-gate", workflow)
+
+
+class CodeOwners(unittest.TestCase):
+    def owners(self, repo):
+        return {p: t for p, a, t in onboard.plan(repo, onboard.render("yudduy/shop", SHA)) if a != "keep"}.get("CODEOWNERS")
+
+    def test_the_kit_block_comes_after_rules_that_would_override_it(self):
+        repo = checkout(**{"CODEOWNERS": "/.github/ @yudduy\n* @other-team\n"})
+        lines = self.owners(repo).splitlines()
+        self.assertEqual(lines[:2], ["/.github/ @yudduy", "* @other-team"])
+        self.assertGreater(len(lines) - 1 - lines[::-1].index("/.github/ @yudduy"), lines.index("* @other-team"),
+                           "the kit's /.github/ rule is the last match, after the catch-all")
+
+    def test_rerunning_moves_the_block_to_the_end_once(self):
+        repo = checkout(**{"CODEOWNERS": "* @other-team\n"})
+        (repo / "CODEOWNERS").write_text(self.owners(repo) + "/docs/ @writers\n")
+        text = self.owners(repo)
+        self.assertEqual(text.count("/.agent-kit/ @yudduy"), 1)
+        self.assertTrue(text.rstrip().endswith(onboard.OWNERS_END))
+        self.assertLess(text.index("/docs/ @writers"), text.index("/.agent-kit/ @yudduy"))
 
 
 class SyncPins(unittest.TestCase):
