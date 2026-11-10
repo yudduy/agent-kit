@@ -102,7 +102,7 @@ def start_journeys(repo, branch=BRANCH, client=None):
         print("No CURSOR_API_KEY is set, so no Cursor run was started.\nNext step: export CURSOR_API_KEY=<onboarding key> && agent-kit journeys %s" % repo)
         return None
     if client is None:
-        from dispatcher import cursor  # the one module that talks to Cursor (D4)
+        from dispatcher import cursor
         client = cursor.Client(key)
     prompt = JOURNEYS_PROMPT.format(repo=repo, branch=branch, pstack=PSTACK[0], pstack_sha=PSTACK[1])
     agent = client.create(str(uuid.uuid4()), "agent-kit onboarding %s" % repo, prompt, repo, branch, work_on_branch=True, auto_pr=False)
