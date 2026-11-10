@@ -144,8 +144,8 @@ class Tick:
             text = self.reader.file(repo, ".agent-kit/policy.yml")
             try:
                 parsed = policy.parse(text) if text is not None else None
-            except policy.PolicyError as error:
-                self.log("Skipping %s: %s" % (repo, error))
+            except Exception as error:  # PolicyError, or a crash inside the parser: one repo must not stop the tick
+                self.log("Skipping %s: its policy could not be read (%s)" % (repo, error))
                 parsed = None
             self.policies[repo] = parsed and ({k: min(v, parsed.get("caps", {}).get(k, v)) for k, v in self.kit.items()},
                                               parsed["approvers"])

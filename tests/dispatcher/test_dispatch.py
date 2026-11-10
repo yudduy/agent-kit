@@ -168,6 +168,14 @@ class Caps(unittest.TestCase):
         self.assertEqual(w.cursor_server.creates, 0)
         self.assertTrue(any("policy" in line for line in w.log))
 
+    def test_a_policy_the_parser_crashes_on_skips_only_that_repo(self):
+        w = World(config(["yudduy/a", "yudduy/b"]))
+        w.rows = lambda repo, s: sources.sentry("acme", s["sentry"]["project"], "t", send=sentry_row(repo))
+        w.gh.files[("yudduy/a", ".agent-kit/policy.yml")] = POLICY + 'classes: {x: {added_lines: ["x{4294967295}"]}}\n'
+        w.tick()
+        self.assertEqual(w.cursor_server.creates, 1)
+        self.assertEqual(next(iter(w.cursor_server.agents.values()))["body"]["repos"][0]["url"], "https://github.com/yudduy/b")
+
     def test_only_registered_repos_are_read(self):
         cfg = config()
         cfg["sources"]["yudduy/unregistered"] = {"sentry": {"org": "acme", "project": "x"}}
