@@ -56,7 +56,8 @@ def decide(f):
         blocking.append(str(error))
     cls, hits = classify(f.files, policy)
 
-    required = {c["name"]: f.checks.get(c["name"], {}).get(c["app"], "missing") for c in (policy or {}).get("required_checks", [])}
+    required = {f"{c['name']} ({c['app']})": f.checks.get(c["name"], {}).get(c["app"], "missing")
+                for c in (policy or {}).get("required_checks", [])}
     blocking += [f"required check {name!r} is {state}" for name, state in required.items() if state != "success"]
 
     if policy is not None:  # D1: every kit caller on base runs the kit the policy pins

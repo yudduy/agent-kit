@@ -82,12 +82,17 @@ class TickTest(unittest.TestCase):
         self.assertNotIn(("PUT", f"/repos/{REPO}/pulls/12/merge"), kinds(writes))
 
     def test_base_kit_pin_mismatch_blocks_merge_d1(self):
-        fixture = Fixture(FIXTURE)
         path = f"/repos/{REPO}/contents/.github/workflows/verify.yml?ref={BASE}"
-        text = base64.b64decode(fixture.api[path]["content"]).decode().replace("a" * 40, "9" * 40)
-        fixture.api[path]["content"] = base64.b64encode(text.encode()).decode()
-        _, writes = tick(fixture)
-        self.assertNotIn(("PUT", f"/repos/{REPO}/pulls/12/merge"), kinds(writes))
+        callers = ("    uses: yudduy/agent-kit/.github/workflows/verify.yml@" + "9" * 40 + "\n",
+                   '  other:\n    "uses": yudduy/agent-kit/.github/workflows/verify.yml@main\n',
+                   "  other:\n    uses: 'YudDuy/Agent-Kit/.github/workflows/verify.yml@main'\n")
+        for caller in callers:
+            with self.subTest(caller):
+                fixture = Fixture(FIXTURE)
+                text = base64.b64decode(fixture.api[path]["content"]).decode() + caller
+                fixture.api[path]["content"] = base64.b64encode(text.encode()).decode()
+                _, writes = tick(fixture)
+                self.assertNotIn(("PUT", f"/repos/{REPO}/pulls/12/merge"), kinds(writes))
 
     def test_unreachable_repo_does_not_stop_the_others(self):
         fixture = Fixture(FIXTURE)

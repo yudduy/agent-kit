@@ -115,14 +115,20 @@ class DecideTest(unittest.TestCase):
         for state in ("skipped", "neutral", "pending", "cancelled", "timed_out", "failure"):
             with self.subTest(state):
                 record = gate(facts(checks={"test": {"github-actions": state}}))
-                self.assertBlocked(record, f"required check 'test' is {state}")
-                self.assertEqual(record["required_checks"], {"test": state})
-        self.assertBlocked(gate(facts(checks={})), "required check 'test' is missing")
+                self.assertBlocked(record, f"required check 'test (github-actions)' is {state}")
+                self.assertEqual(record["required_checks"], {"test (github-actions)": state})
+        self.assertBlocked(gate(facts(checks={})), "required check 'test (github-actions)' is missing")
 
     def test_required_check_from_another_app_counts_as_missing(self):
         record = gate(facts(checks={"test": {"evil-app": "success"}}))
-        self.assertEqual(record["required_checks"], {"test": "missing"})
-        self.assertBlocked(record, "required check 'test' is missing")
+        self.assertEqual(record["required_checks"], {"test (github-actions)": "missing"})
+        self.assertBlocked(record, "required check 'test (github-actions)' is missing")
+
+    def test_same_check_name_from_two_required_apps_is_checked_per_app(self):
+        policy = POLICY.replace("required_checks: [{name: test, app: github-actions}]",
+                                "required_checks: [{name: test, app: security-app}, {name: test, app: github-actions}]")
+        record = gate(facts(policy_text=policy, checks={"test": {"security-app": "failure", "github-actions": "success"}}))
+        self.assertBlocked(record, "required check 'test (security-app)' is failure")
 
     def test_kit_workflow_pins_must_equal_policy_kit_ref_d1(self):
         for pins in ({".github/workflows/verify.yml": ["9" * 40]}, {".github/workflows/verify.yml": ["main"]},

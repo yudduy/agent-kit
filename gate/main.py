@@ -30,7 +30,7 @@ EVIDENCE_ARTIFACT = "agent-kit-evidence"  # Actions artifact holding evidence.js
 MAX_ARTIFACT_BYTES = 200_000_000  # shortcut: larger artifacts count as missing evidence; raise if real traces exceed it
 LOG_BRANCH = "decisions-log"
 CHECK_NAME = "agent-gate"
-KIT_USES = re.compile(r"""uses:\s*['"]?yudduy/agent-kit/[^@\s'"]+@([^\s'"#]+)""")
+KIT_USES = re.compile(r"""yudduy/agent-kit/[^@\s'"]+@([^\s'"#,\]}]+)""", re.IGNORECASE)  # any kit reference, however quoted
 REPO_NAME = re.compile(r"[A-Za-z0-9-]+/[A-Za-z0-9._-]+$")
 
 
