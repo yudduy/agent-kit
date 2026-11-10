@@ -2,9 +2,11 @@
 # agent-learning-check (INV-12): added test or eval cases pass; higher-level fixes pass but get the `governance`
 #   label so only a human can approve; edits to existing expectations, graders, thresholds, policy, gate or verify
 #   fail. Reads the PR's file list through the API; never runs PR code.
-# learning-proof (INV-13): each added case must fail on the base commit and pass on head, and the full suite must
-#   pass on head; an added case with no assertion fails. It runs PR code, so it has read permissions and no secrets.
-#   Repo variables: AGENT_KIT_CASE_CMD (with {case}), AGENT_KIT_SUITE_CMD, optional AGENT_KIT_TEST_SETUP.
+# learning-proof (INV-13): each added case must fail on the base commit by an assertion and pass on head with at
+#   least one assertion run, and the full suite must pass on head. It runs PR code, so it has read permissions and
+#   no secrets. Repo variables: AGENT_KIT_CASE_CMD, AGENT_KIT_SUITE_CMD, optional AGENT_KIT_TEST_SETUP.
+#   AGENT_KIT_CASE_CMD must be a pytest command with {case}, such as `python -m pytest {case}`. In phase 1 any other
+#   runner (Jest, Vitest, Playwright, a plain script) fails the proof, so a TypeScript-only repo cannot pass it yet.
 name: agent-learning-check
 on:
   pull_request:

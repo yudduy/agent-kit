@@ -41,9 +41,11 @@ on `origin/main` (callers cannot use an unpublished commit).
   branches: added cases pass, higher-level fixes pass with the `governance` label, edits to existing expectations,
   graders, thresholds, policy, gate or verify fail. It needs `learning/pathcheck.py` in the pinned kit commit.
   Its second job, `learning-proof` (INV-13, also in `required_checks`), runs each added case on the base commit
-  (must fail) and on head (must pass), then the full suite on head; an added case with no assertion fails. Set the
-  repo's Actions variables `AGENT_KIT_CASE_CMD` (with `{case}`), `AGENT_KIT_SUITE_CMD` and optionally
-  `AGENT_KIT_TEST_SETUP`. It needs `learning/proof.py` in the pinned kit commit.
+  (must fail by an assertion) and on head (must pass with at least one assertion run), then the full suite on head.
+  Set the repo's Actions variables `AGENT_KIT_CASE_CMD`, `AGENT_KIT_SUITE_CMD` and optionally `AGENT_KIT_TEST_SETUP`.
+  `AGENT_KIT_CASE_CMD` must be a pytest command with `{case}`, such as `python -m pytest {case}`. In phase 1 any other
+  runner (Jest, Vitest, Playwright, a plain script) fails the proof, so a TypeScript-only repo cannot pass a learning
+  proof yet. It needs `learning/proof.py` in the pinned kit commit.
 - `.agent-kit/automations/feature-docs.md`: the Cursor Automation setup and prompt that update `docs/features/` after
   each merge on main (D8). Cursor has no API to create it, so `init` prints the step and you create it by hand.
 - `AGENTS.md`: the line `<!-- agent-kit:automation v1 seer:off cursor-sentry:off -->`, appended if the file exists.
