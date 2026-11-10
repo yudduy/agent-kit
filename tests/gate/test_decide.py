@@ -1,7 +1,13 @@
 import unittest
 
-from gate.decide import decide, record_from_summary, summary
+from gate.decide import decide, record_from_summary, regression_counts, summary
 from tests.gate.helpers import BASE, HEAD, KIT, POLICY, change, facts, review
+
+
+def regression(fail_on_base, pass_on_head):
+    entry = {"id": "fp-3f9a", "spec": "tests/regress/fp-3f9a.spec.ts", "trusted": False,
+             "fail_on_base": fail_on_base, "pass_on_head": pass_on_head}
+    return lambda doc: doc.__setitem__("regression", [entry])
 
 
 def gate(f):
@@ -19,7 +25,7 @@ class DecideTest(unittest.TestCase):
         record = gate(facts())
         self.assertEqual((record["conclusion"], record["class"], record["evidence"], record["reasons"]), ("success", "docs", "ok", []))
         self.assertEqual(record["shadow"], "would_merge")
-        self.assertEqual(record_from_summary(summary(record)[1]), record)
+        self.assertEqual(record_from_summary(summary(record, None)[1]), record)
 
     def test_policy_edit_in_pr_is_governance_and_blocked_inv3(self):
         record = gate(facts(files=[change(".agent-kit/policy.yml", patch="@@ -1 +1 @@\n-auto_merge: [docs]\n+auto_merge: [docs, review]")]))
@@ -204,11 +210,24 @@ class DecideTest(unittest.TestCase):
         self.assertEqual(record["shadow"], "would_not")
 
     def test_shadow_verdict_for_error_fix(self):
-        record = gate(facts(files=[change("src/app.py")]))
+        record = gate(facts(files=[change("src/app.py")], edit=regression(True, True)))
         self.assertEqual((record["conclusion"], record["shadow"]), ("failure", "would_merge"))
-        self.assertIn("would merge it", summary(record)[1])
-        record = gate(facts(files=[change("src/app.py")], checks={"test": {"github-actions": "failure"}}))
+        self.assertIn("would merge it", summary(record, regression_counts(facts(edit=regression(True, True))))[1])
+        record = gate(facts(files=[change("src/app.py")], edit=regression(True, True), checks={"test": {"github-actions": "failure"}}))
         self.assertEqual(record["shadow"], "would_not")
+
+    def test_shadow_needs_a_passing_regression_test_for_error_fixes(self):
+        for name, edit in (("none", None), ("passes on base", regression(False, True)), ("fails on head", regression(True, False)),
+                           ("one of two fails", lambda d: (regression(True, True)(d), d["regression"].append(dict(d["regression"][0], pass_on_head=False))))):
+            with self.subTest(name):
+                self.assertEqual(gate(facts(files=[change("src/app.py")], edit=edit))["shadow"], "would_not")
+        self.assertEqual(gate(facts(edit=None))["shadow"], "would_merge")  # docs needs no regression test
+
+    def test_summary_shows_regression_results(self):
+        f = facts(files=[change("src/app.py")], edit=regression(True, False))
+        text = summary(decide(f), regression_counts(f))[1]
+        self.assertIn("0 of 1 fail before the fix and pass after it", text)
+        self.assertNotIn("fp-", text.split("```json")[0])
 
     def test_record_has_c5_fields(self):
         self.assertEqual(list(gate(facts())), ["v", "repo", "pr", "head_sha", "base_sha", "kit_ref", "policy_sha", "class",

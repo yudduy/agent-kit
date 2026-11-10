@@ -51,6 +51,17 @@ class ClassifyTest(unittest.TestCase):
         self.assertEqual(cls(change("scripts/x.sh", patch="@@ -0,0 +1 @@\n+rm -rf /tmp/x"))[0], "destructive")
         self.assertEqual(cls(change("docs/ops.md", patch="@@ -1 +0,0 @@\n-DROP TABLE users"))[0], "docs")
 
+    def test_destructive_matches_equivalent_syntax(self):
+        for line in ("drop table users", "Drop  Table users", "DROP\tTABLE x", "drop index i", "delete from users",
+                     "DELETE\tFROM x", "truncate table users", "truncate users;", "rm -rf /x", "rm -fr /x", "rm -Rf x",
+                     "rm -r -f /x", "rm -f -r /x", "rm --recursive --force /x", "rm -r --force x", "sudo rm  -rf x"):
+            with self.subTest(line):
+                self.assertEqual(cls(change("src/x.sh", patch=f"@@ -0,0 +1 @@\n+{line}"))[0], "destructive")
+        for line in ("drag and drop the file", "delete the old file", "truncate the text", "rm -f x", "rm -r dir",
+                     "rm --force x", "cp -rf a b", "run: rm x; ls -rf"):
+            with self.subTest(line):
+                self.assertEqual(cls(change("docs/a.md", patch=f"@@ -0,0 +1 @@\n+{line}"))[0], "docs")
+
     def test_most_restrictive_wins(self):
         self.assertEqual(cls(change("docs/a.md"), change("src/app.py")), ("review", ["review", "docs"]))
         self.assertEqual(cls(change(".github/x.yml"), change("src/a.py", status="removed", patch=None))[0], "governance")

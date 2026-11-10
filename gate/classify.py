@@ -10,7 +10,15 @@ GOVERNANCE_PATHS = (".agent-kit/**", ".github/**", ".cursor/**", ".claude/**", "
                     "**/AGENTS.md", "**/CLAUDE.md", "**/SKILL.md", "**/skills/**", "docs/design/**", "**/fixtures/**", "**/evals/**")
 DOCS_PATHS = ("docs/**", "**/*.md")
 KIT_CALLER_PATHS = (".github/workflows/**", ".agent-kit/policy.yml")
-DESTRUCTIVE_LINE = re.compile(r"\b(DROP|TRUNCATE|DELETE FROM)\b|\brm -rf\b")
+DESTRUCTIVE_LINE = re.compile(
+    r"\b(?-i:DROP|TRUNCATE)\b"  # bare upper-case SQL keywords; lower-case needs SQL context so prose stays docs
+    r"|\bdrop\s+(?:table|database|schema|index|view|column|constraint|type|function|trigger|sequence)\b"
+    r"|\btruncate\s+(?:table\b|\S+\s*;)"
+    r"|\bdelete\s+from\b"
+    # rm with both a recursive and a force flag anywhere in the same command
+    r"|\brm\b(?=[^\n;|&]*\s(?:-(?!-)[a-z]*r|--recursive\b))(?=[^\n;|&]*\s(?:-(?!-)[a-z]*f|--force\b))",
+    re.IGNORECASE,
+)
 KIT_BUMP_LINE = re.compile(
     r"^\s*(-\s+)?uses:\s*yudduy/agent-kit/\S+@[0-9a-f]{40}\s*(#.*)?$|^\s*kit_ref:\s*[0-9a-f]{40}\s*(#.*)?$"
 )
