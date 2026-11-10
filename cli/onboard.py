@@ -15,7 +15,7 @@ PSTACK = ("https://github.com/backnotprop/pstack", "4161d4ef5051574e825ffe70e2f4
 # Template files merged line by line into whichever existing copy the repo has, instead of being kept or overwritten.
 APPEND = {".github/CODEOWNERS": (".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"), "AGENTS.md": ("AGENTS.md",)}
 REGISTER = "Register: add %s to `agent-kit/repos.json` in agent-control so the gate, dispatcher and harvest pick it up."
-USES = re.compile(r"(uses:\s*yudduy/agent-kit/[^@\s]+@)([0-9a-f]{40})")
+USES = re.compile(r"""(uses:\s*['"]?yudduy/agent-kit/[^@\s'"]+@)([0-9a-f]{40})""")
 TITLE = "Add agent kit onboarding"
 
 JOURNEYS_PROMPT = """You are onboarding {repo} to agent-kit on branch {branch}. Commit to that branch only; do not open a new PR.
@@ -156,7 +156,7 @@ def bump(checkout, new):
     copy of the old `kit_ref` in a file `init` templates (such as the learning check's checkout `ref:`).
     Returns changed paths."""
     policy = checkout / ".agent-kit" / "policy.yml"
-    found = re.search(r"^kit_ref:\s*([0-9a-f]{40})", policy.read_text(), re.M) if policy.exists() else None
+    found = re.search(r"""^kit_ref:\s*['"]?([0-9a-f]{40})['"]?\s*(#.*)?$""", policy.read_text(), re.M) if policy.exists() else None
     old_ref = found.group(1) if found else None
     workflows = {str(p.relative_to(checkout)) for p in (checkout / ".github" / "workflows").glob("*.y*ml")}
     templated, changed = set(render("", new)), []

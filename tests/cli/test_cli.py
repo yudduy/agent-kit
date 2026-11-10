@@ -140,6 +140,18 @@ class SyncPins(unittest.TestCase):
         self.assertIn("ref: " + NEW, (repo / ".github/workflows/agent-learning-check.yml").read_text())
 
 
+class QuotedPins(unittest.TestCase):
+    def test_bump_handles_quoted_kit_ref_and_uses(self):
+        files = onboard.render("yudduy/shop", SHA)
+        files[".agent-kit/policy.yml"] = files[".agent-kit/policy.yml"].replace("kit_ref: " + SHA, 'kit_ref: "%s"' % SHA)
+        files[".github/workflows/caller.yml"] = 'jobs:\n  v:\n    uses: "yudduy/agent-kit/.github/workflows/verify.yml@%s"\n' % SHA
+        repo = checkout(**files)
+        onboard.bump(repo, NEW)
+        for rel in files:
+            self.assertNotIn(SHA, (repo / rel).read_text(), rel)
+        self.assertIn('kit_ref: "%s"' % NEW, (repo / ".agent-kit/policy.yml").read_text())
+
+
 class OtherCommands(unittest.TestCase):
     def test_doctor_and_verify_explain_when_their_modules_are_missing(self):
         with mock.patch.dict("sys.modules", {"doctor": None, "doctor.doctor": None, "verify": None, "verify.local_run": None}):
