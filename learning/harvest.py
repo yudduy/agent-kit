@@ -6,8 +6,8 @@ Run from a kit checkout: `python3 -m learning.harvest --control <agent-control c
   harvest.py --control ../control --cases log/learning/cases.jsonl [--agent-login L] [--days 21] [--propose]
 
 Signals per onboarded repo: human edits to agent PR bodies, human review comments on merged agent PRs, reverts and
-fix-ups within 14 days, `agent-gate` failures, and false greens (gate passed, then a revert or the same `fp` reopened
-within 14 days). Bots and the PR author never count. New cases are appended to --cases; a class qualifies at 2 cases.
+fix-ups within 14 days, `agent-gate` failures on any agent PR updated in the window (merged, open or closed), and
+false greens (gate passed, then a revert or the same `fp` reopened within 14 days). Bots and the PR author never count. New cases are appended to --cases; a class qualifies at 2 cases.
 --propose starts one Cursor run per class that qualified this week, with learning/propose.md as its prompt; the run
 pushes a `learn/<class>` branch, where the required `agent-learning-check` applies.
 """
@@ -105,10 +105,18 @@ class Harvest:
         reopened = self.reopened_fps(since)
         cases = []
         for repo in self.config["repos"]:
-            merged = search(self.gql, PR_FIELDS, "repo:%s is:pr is:merged merged:>=%s" % (repo, since))
-            for pr in (p for p in merged if self.is_agent_pr(p)):
-                cases += self.from_pr(repo, pr, merged, reopened)
+            updated = search(self.gql, PR_FIELDS, "repo:%s is:pr updated:>=%s" % (repo, since))
+            merged = [p for p in updated if (p.get("mergedAt") or "")[:10] >= since]
+            for pr in (p for p in updated if self.is_agent_pr(p)):
+                cases += self.gate_failures(repo, pr)
+                if pr in merged:
+                    cases += self.from_pr(repo, pr, merged, reopened)
         return cases
+
+    def gate_failures(self, repo, pr):
+        """Failed `agent-gate` runs on an agent PR, whether it merged, is still open, or was closed."""
+        return [self.case("gate_failure", repo, pr, r["completedAt"], r["url"], r.get("summary") or "", gate_class(r.get("summary")), "gate")
+                for r in gate_runs(pr) if r["conclusion"] == "FAILURE"]
 
     def reopened_fps(self, since):
         q = 'repo:%s is:issue label:"agent:incident" updated:>=%s' % (self.config["control_repo"], since)
@@ -134,13 +142,10 @@ class Harvest:
         for c in comments:
             if self.human(c.get("author"), pr) and topic(c.get("body")):
                 cases.append(self.case("review_comment", repo, pr, c["createdAt"], c["url"], c["body"], topic(c["body"])))
-        gate = [r for n in pr["commits"]["nodes"] for s in n["commit"]["checkSuites"]["nodes"] for r in s["checkRuns"]["nodes"] if r]
-        for r in (r for r in gate if r["conclusion"] == "FAILURE"):
-            cases.append(self.case("gate_failure", repo, pr, r["completedAt"], r["url"], r.get("summary") or "", gate_class(r.get("summary")), "gate"))
         followups = self.followups(pr, merged)
         for later, kind in followups:
             cases.append(self.case("revert_14d", repo, pr, later["mergedAt"], later["url"], "%s: %s" % (kind, later["title"]), "reverted-fix"))
-        if any(r["conclusion"] == "SUCCESS" for r in gate):
+        if any(r["conclusion"] == "SUCCESS" for r in gate_runs(pr)):
             merged_at = ts(pr["mergedAt"])
             fps = set(FP.findall(pr.get("body") or ""))
             returns = [(at, url) for fp in fps for at, url in reopened.get(fp, []) if merged_at < ts(at) <= merged_at + WINDOW]
@@ -162,6 +167,10 @@ class Harvest:
             elif ref.search(text) and re.search(r"\b(fix|fixes|fixup|fix-up|follow-?up)\b", text, re.I):
                 out.append((later, "fix-up"))
         return out
+
+
+def gate_runs(pr):
+    return [r for n in pr["commits"]["nodes"] for s in n["commit"]["checkSuites"]["nodes"] for r in s["checkRuns"]["nodes"] if r]
 
 
 def topic(text):

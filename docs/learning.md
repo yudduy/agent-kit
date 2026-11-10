@@ -15,7 +15,7 @@ account that authors agent PRs (O2). Proposal runs need `dispatcher/cursor.py` a
 | `duy_edit` | A human (not the PR author, not a bot) edited an agent PR's body. |
 | `review_comment` | A human review or comment on a merged agent PR that raises a known topic; "LGTM" is skipped. |
 | `revert_14d` | A PR merged within 14 days that reverts the agent PR, or references it as a fix-up. |
-| `gate_failure` | An `agent-gate` check that failed on the agent PR; the class comes from the first gate reason. |
+| `gate_failure` | An `agent-gate` check that failed on an agent PR updated in the window, merged or not (open, closed, abandoned); the class comes from the first gate reason. |
 | `false_green` | The gate passed, then within 14 days the PR was reverted or its `fp` incident reopened. |
 
 An agent PR is one authored by a bot or a login in `agent_logins`, or one on a `cursor/` branch. All queries are
@@ -50,6 +50,17 @@ check: it runs on every PR (so the gate never sees it skipped) and checks only `
 An edit to an existing test fails even if it only adds lines, because one added `return` can switch a test off.
 A new file that runs when a suite loads (`conftest.py`, `__init__.py`, `*.config.*`, setup files) is not a case:
 it can switch existing tests off, so it counts as a higher-level fix and gets the `governance` label.
+
+## Proof check (INV-13)
+
+The same workflow has a second required job, `learning-proof`, which runs on every PR and checks only `learn/*`
+branches with `learning/proof.py`. Each test or eval file the PR adds, and each `.jsonl` case list it appends to, is
+copied into a checkout of the base commit and run there (it must fail), then run on the head commit (it must pass);
+then the full suite runs on head (it must pass). A case whose added lines hold no assertion counts as a failed proof,
+so an empty spec proves nothing. The job's summary and a notice give the counts. The repo sets the commands as
+Actions variables: `AGENT_KIT_CASE_CMD` (with `{case}` for the case path), `AGENT_KIT_SUITE_CMD`, and optionally
+`AGENT_KIT_TEST_SETUP` (run in both checkouts first). Unset commands fail the check on `learn/*` PRs. This job runs PR
+code, so it has only read permissions and no secrets.
 
 ## Blind review of skill text
 

@@ -1,4 +1,5 @@
 import json
+import sys
 import tempfile
 import unittest
 from collections import Counter
@@ -6,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
-from learning import harvest, judge, pathcheck
+from learning import harvest, judge, pathcheck, proof
 
 FIXTURES = Path(__file__).parent / "fixtures"
 CONFIG = {"control_repo": "yudduy/agent-control", "repos": ["yudduy/shop"], "agent_logins": []}
@@ -229,6 +230,102 @@ class Judge(unittest.TestCase):
         api = FakeGitHubAPI()
         api.comments = [{"body": "<!-- agent-kit:judge v1 {broken} -->", "user": {"login": "agent-kit-judge"}}]
         self.assertEqual(len(self.run_judge(api, lambda p: '{"better": "tie", "reason": "x"}')), 1)
+
+
+OPEN_PR = {"number": 21, "title": "Fix cart total", "url": "https://github.com/yudduy/shop/pull/21", "body": "", "mergedAt": None,
+           "headRefName": "cursor/fix-cart-e5f6", "author": {"login": "cursor", "__typename": "Bot"},
+           "userContentEdits": {"nodes": []}, "comments": {"nodes": []}, "reviews": {"nodes": []},
+           "commits": {"nodes": [{"commit": {"oid": "3" * 40, "checkSuites": {"nodes": [{"checkRuns": {"nodes": [
+               {"conclusion": "FAILURE", "summary": "```json\n{\"v\": 1, \"reasons\": [\"evidence missing\"]}\n```",
+                "url": "https://github.com/yudduy/shop/runs/3", "completedAt": "2026-11-08T08:00:00Z"}]}}]}}}]}}
+
+
+class HarvestUnmerged(unittest.TestCase):
+    def test_gate_failures_on_open_or_closed_agent_prs_become_cases(self):
+        def search_like_github(query, q, n, after):
+            nodes = json.loads((FIXTURES / ("incidents.json" if "is:issue" in q else "prs.json")).read_text())
+            if "is:pr" in q and "is:merged" not in q:
+                nodes.append(OPEN_PR)
+            return {"search": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": nodes}}
+        cases = harvest.Harvest(CONFIG, search_like_github, lambda: datetime(2026, 11, 10, 9, tzinfo=timezone.utc)).run(21)
+        unmerged = [c for c in cases if c["pr"] == 21]
+        self.assertEqual([(c["signal"], c["proposed_class"]) for c in unmerged], [("gate_failure", "gate-evidence-missing")])
+        self.assertEqual(Counter(c["signal"] for c in cases if c["pr"] != 21),
+                         {"review_comment": 2, "duy_edit": 1, "gate_failure": 1, "revert_14d": 1, "false_green": 1})
+
+
+def tree(**files):
+    root = Path(tempfile.mkdtemp())
+    for rel, text in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text)
+    return root
+
+
+CASE = 'import app\nassert app.save("Ada") == "Ada"\n'
+RUN_CASE = '"%s" {case}' % sys.executable
+PASS, FAIL = '"%s" -c "pass"' % sys.executable, '"%s" -c "raise SystemExit(1)"' % sys.executable
+
+
+class Proof(unittest.TestCase):
+    def prove(self, case=CASE, base_save="return None", suite=PASS, case_cmd=RUN_CASE):
+        base = tree(**{"app.py": "def save(name):\n    %s\n" % base_save})
+        head = tree(**{"app.py": "def save(name):\n    return name\n", "test_save_case.py": case})
+        entry = ("test_save_case.py", "added", "\n".join("+" + l for l in case.splitlines()))
+        with mock.patch("builtins.print"):
+            return proof.prove(files(entry), base, head, case_cmd, suite)
+
+    def test_an_added_case_with_no_assertion_is_not_proof(self):
+        self.assertEqual(pathcheck.check(files(("test_save_case.py", "added", ""))), ([], []), "the path check alone passes it")
+        for case in ("", "import app\n", "import app\n# assert app.save('Ada')\n"):
+            ok, counts = self.prove(case=case)
+            self.assertFalse(ok, repr(case))
+            self.assertEqual(counts["no_assertion"], 1, repr(case))
+
+    def test_a_case_that_fails_on_base_and_passes_on_head_with_the_suite_green_is_proof(self):
+        ok, counts = self.prove()
+        self.assertTrue(ok)
+        self.assertEqual(counts, {"cases": 1, "failed_on_base": 1, "passed_on_head": 1, "no_assertion": 0, "suite": "pass"})
+
+    def test_a_case_that_already_passes_on_base_is_not_proof(self):
+        ok, counts = self.prove(base_save="return name")
+        self.assertFalse(ok)
+        self.assertEqual(counts["failed_on_base"], 0)
+
+    def test_a_failing_full_suite_on_head_is_not_proof(self):
+        ok, counts = self.prove(suite=FAIL)
+        self.assertFalse(ok)
+        self.assertEqual(counts["suite"], "fail")
+
+    def test_no_added_case_or_no_test_command_is_not_proof(self):
+        base, head = tree(**{"app.py": "x = 1\n"}), tree(**{"app.py": "x = 2\n"})
+        with mock.patch("builtins.print"):
+            self.assertFalse(proof.prove(files(("app.py", "modified", "-x = 1\n+x = 2")), base, head, RUN_CASE, PASS)[0])
+            self.assertFalse(self.prove(case_cmd="")[0])
+
+    def test_lines_appended_to_a_case_list_run_as_one_case(self):
+        base = tree(**{"app.py": "def save(name):\n    return None\n", "evals/cases.jsonl": '{"name": "Bo", "expected": null}\n'})
+        lines = '{"name": "Bo", "expected": null}\n{"name": "Ada", "expected": "Ada"}\n'
+        head = tree(**{"app.py": "def save(name):\n    return name if name == 'Ada' else None\n", "evals/cases.jsonl": lines})
+        runner = ('"%s" -c "import json,sys,app; sys.exit(any(app.save(c[\'name\']) != c[\'expected\'] for c in map(json.loads, open(sys.argv[1]))))" {case}'
+                  % sys.executable)
+        with mock.patch("builtins.print"):
+            ok, counts = proof.prove(files(("evals/cases.jsonl", "modified", '@@ -1,0 +2 @@\n+{"name": "Ada", "expected": "Ada"}')),
+                                     base, head, runner, PASS)
+        self.assertTrue(ok)
+        self.assertEqual(counts["cases"], 1)
+
+    def test_main_writes_the_counts_to_the_summary(self):
+        base, head = tree(**{"app.py": "def save(name):\n    return None\n"}), tree(**{"app.py": "def save(name):\n    return name\n", "test_save_case.py": CASE})
+        listing = Path(tempfile.mkdtemp()) / "files.jsonl"
+        listing.write_text(json.dumps({"filename": "test_save_case.py", "status": "added", "patch": "".join("+" + l for l in CASE.splitlines(True))}))
+        summary = listing.with_name("summary.md")
+        with mock.patch("builtins.print"):
+            code = proof.main(["--files", str(listing), "--base", str(base), "--head", str(head), "--case-cmd", RUN_CASE,
+                               "--suite-cmd", PASS, "--summary", str(summary)])
+        self.assertEqual(code, 0)
+        self.assertIn("1 of 1 added cases fail on base", summary.read_text())
+
 
 if __name__ == "__main__":
     unittest.main()
